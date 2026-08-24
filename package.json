@@ -8,10 +8,10 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "build": "corepack pnpm --filter @leave/web build",
-    "check": "corepack pnpm --filter @leave/web check",
-    "dev": "corepack pnpm --filter @leave/web dev",
-    "e2e": "corepack pnpm --filter @leave/web e2e",
-    "test": "corepack pnpm --filter @leave/web test"
+    "build": "pnpm --filter @leave/web build",
+    "check": "pnpm --filter @leave/web check",
+    "dev": "pnpm --filter @leave/web dev",
+    "e2e": "pnpm --filter @leave/web e2e",
+    "test": "pnpm --filter @leave/web test"
   }
 }
