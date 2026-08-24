@@ -147,7 +147,7 @@ before review, unrestricted remote shell
 
 ## Goals
 
-**Business goal:** Reach a safe public beta after legal and cryptography gates.
+**Business goal:** Reach a safe public beta after the cryptography gate.
 
 **Conversion action:** Install the local host and pair an approved device.
 

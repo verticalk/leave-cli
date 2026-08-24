@@ -36,11 +36,9 @@ impl CryptoReleaseStatus {
     #[must_use]
     pub const fn current() -> Self {
         Self {
-            openmls_compiled: if cfg!(feature = "openmls-experimental") {
-                GateCheck::Passed
-            } else {
-                GateCheck::Blocked
-            },
+            // No OpenMLS provider is integrated yet, so this cannot be earned
+            // by a build flag. It changes when the transport lands.
+            openmls_compiled: GateCheck::Blocked,
             advisory_graph_clean: GateCheck::Blocked,
             native_wasm_vectors_pass: GateCheck::Blocked,
             browser_persistence_pass: GateCheck::Blocked,

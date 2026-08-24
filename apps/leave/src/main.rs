@@ -276,7 +276,10 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         CommandName::Login | CommandName::Pair => {
-            bail!("remote enrollment is disabled until the OpenMLS release gate passes")
+            bail!(
+                "hosted accounts and device pairing are not implemented yet; \
+                 use `leave connect --away` for private phone access over your own Tailscale network"
+            )
         }
         CommandName::Connect(args) => connect(&store, args, &paths.data_dir).await?,
         CommandName::Setup(args) => {

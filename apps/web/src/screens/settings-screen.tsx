@@ -39,8 +39,9 @@ export function SettingsScreen() {
 
       <div className="settings-grid">
         <section className="settings-section">
-          <header><span className="settings-icon"><LockKey aria-hidden="true" size={18} weight="regular" /></span><div><h2>Hosted relay gate</h2><p>Public internet routing stays off until every MLS release check passes.</p></div></header>
+          <header><span className="settings-icon"><LockKey aria-hidden="true" size={18} weight="regular" /></span><div><h2>Hosted relay</h2><p>The encrypted internet transport is not built yet. These are the checks it must pass before it can ship.</p></div></header>
           <div className="gate-list">
+            <div><span>Encrypted transport</span><strong className="gate-blocked">Not implemented</strong></div>
             <div><span>OpenMLS provider graph</span><strong className="gate-blocked">Blocked</strong></div>
             <div><span>Native ↔ WASM vectors</span><strong className="gate-pending">Pending</strong></div>
             <div><span>External cryptography review</span><strong className="gate-pending">Pending</strong></div>

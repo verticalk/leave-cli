@@ -99,8 +99,8 @@ After that, the terminal is done. Leave Setup walks through the rest:
    you turn it on. Leave can start the Tailscale sign-in from this screen.
 4. **Start** — Leave runs, and shows a QR code your phone camera can open.
 
-Public signed installers are not published until the legal and cryptography
-release gates pass, so Leave builds from this checkout on your own computer.
+Public signed installers are not published until the cryptography release
+gate passes, so Leave builds from this checkout on your own computer.
 
 ### Requirements the script handles for you
 
@@ -188,15 +188,12 @@ The browser suite expects Playwright browser binaries and their OS libraries.
 Credentialed qualification against Devin latest and the previous supported
 release remains a manual release check.
 
-## Release gates
+## Release gate
 
-Public distribution and hosted operation require both:
+Hosted operation requires the security evidence listed in
+[the crypto release gate](docs/crypto-release-gate.md).
 
-1. Written Cognition approval for the intended third-party integration and
-   product language.
-2. The security evidence listed in [the crypto release gate](docs/crypto-release-gate.md).
-
-The project will not hide either gate behind an environment variable.
+The project will not hide that gate behind an environment variable.
 
 ## License
 

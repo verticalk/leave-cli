@@ -4,8 +4,9 @@ Leave's remote transport is disabled in this alpha. The repository does not
 claim end-to-end or zero-knowledge encryption yet.
 
 The `leave-crypto` crate reserves the native and WASM boundary for an RFC 9420
-OpenMLS implementation. A maintainer may change the hard-coded release status
-only after all of these checks are attached to a signed release record:
+OpenMLS implementation; the dependency is added back when that implementation
+starts. A maintainer may change the hard-coded release status only after all of
+these checks are attached to a signed release record:
 
 1. OpenMLS ships a provider graph without the advisories tracked in upstream
    issue 2126.
@@ -21,11 +22,13 @@ a command-line override.
 
 ## Current audit evidence
 
-The 2026-08-23 audit of `Cargo.lock` reports six vulnerabilities in the
-optional OpenMLS provider graph. Remote operation remains blocked until the
-graph is upgraded and a new exact-lockfile audit passes:
+`cargo audit` and `cargo deny check` pass on the current lockfile, so the
+second gate condition holds today.
 
-| Advisory | Crate | Current version | Fixed version |
+Until 2026-08-24 they did not. The audit reported six high-severity
+vulnerabilities, and two of them had no published fix:
+
+| Advisory | Crate | Version | Fixed version |
 |---|---|---:|---:|
 | RUSTSEC-2026-0209 | `libcrux-aesgcm` | 0.0.7 | No fix published |
 | RUSTSEC-2026-0211 | `libcrux-aesgcm` | 0.0.7 | No fix published |
@@ -34,6 +37,32 @@ graph is upgraded and a new exact-lockfile audit passes:
 | RUSTSEC-2026-0207 | `libcrux-sha3` | 0.0.8 | 0.0.10 or later |
 | RUSTSEC-2026-0208 | `libcrux-sha3` | 0.0.8 | 0.0.10 or later |
 
-RustSec also marks `libcrux-aesgcm` and `proc-macro-error2` unmaintained. The
-table is an audit snapshot, not an exception list; CI must keep failing while
-these records affect the release graph.
+Every one of them arrived through the optional OpenMLS dependency that
+`leave-crypto` declared before any code used it. No source file in the
+workspace imported `openmls`, and three of the six crates were never compiled
+in any configuration: `openmls`'s `libcrux-provider` feature and `hpke-rs`'s
+`libcrux` feature are both opt-in, and `openmls_rust_crypto` takes `hpke-rs`
+with the RustCrypto backend. They reached `cargo audit` only because the
+lockfile records the union of every optional dependency.
+
+The three that did compile under `--features openmls-experimental` could not
+have been upgraded from here: `libcrux-traits` 0.0.6 requires
+`libcrux-secrets` at exactly `=0.0.5`, so `cargo update --precise` is refused.
+
+Dropping the unused declaration removed 79 packages from the lockfile,
+including all six advisories, without changing a line of compiled behaviour.
+Re-add the OpenMLS dependency in the same change that starts using it, and
+audit the graph as it stands then. That is a hygiene fix, not an exception
+list: no advisory was ignored, suppressed, or waived.
+
+## What is missing before the gate matters
+
+The gate protects a transport that does not exist yet. `leave-crypto` contains
+the release-status enum and no cryptography. The host has no relay client, the
+relay's `hosts`, `workspaces`, `devices`, and `organizations` endpoints are
+fixed `503` responses, its WebSocket route serves loopback demo mode only, and
+`leave login` and `leave pair` return an error instead of enrolling anything.
+
+Changing the release status to `Passed` would therefore not enable remote
+access. It would start a relay that answers every request with `503`, while
+asserting evidence that no test or review has produced.

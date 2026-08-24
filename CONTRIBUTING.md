@@ -1,7 +1,7 @@
 # Contributing
 
-The public project remains gated on written Cognition approval. Until that gate
-passes, treat this checkout as a private research prototype.
+Treat this checkout as a private research prototype. The remote transport is
+not implemented yet, and the crypto release gate keeps it disabled.
 
 ## Development rules
 
