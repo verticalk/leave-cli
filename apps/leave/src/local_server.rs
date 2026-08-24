@@ -27,7 +27,7 @@ use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
 #[derive(Clone)]
-struct LocalServerState {
+pub(crate) struct LocalServerState {
     store: EventStore,
     workspace: WorkspaceRecord,
     acp: AcpHandle,
@@ -49,6 +49,17 @@ pub struct LocalServeConfig {
     pub preview_granted: bool,
     /// Managed or system Chromium binary selected by the host.
     pub chrome_binary: Option<PathBuf>,
+    /// Relay to serve this workspace through, in addition to loopback.
+    pub relay: Option<RelayAccess>,
+}
+
+/// Where and how to attach a relay route for this workspace.
+#[derive(Debug, Clone)]
+pub struct RelayAccess {
+    /// Base URL of the relay.
+    pub url: String,
+    /// Secret the relay requires to register a route.
+    pub registration_secret: String,
 }
 
 /// Network boundary enforced by the local HTTP server.
@@ -264,8 +275,49 @@ pub async fn serve_local(
         devin_binary,
         access: config.access,
     };
-    let static_files = ServeDir::new(&web_dir).fallback(ServeFile::new(index));
-    let app = Router::new()
+    let app = build_router(state.clone(), &web_dir, &index);
+
+    if let Some(relay) = config.relay.clone() {
+        let router = app.clone();
+        match crate::relay_tunnel::open_route(&relay, &state.workspace.id.to_string(), router).await
+        {
+            Ok(service) => {
+                tokio::spawn(async move {
+                    if let Err(error) = crate::relay_tunnel::serve_route(service).await {
+                        tracing::error!(%error, "the relay route ended");
+                    }
+                });
+            }
+            // Losing the relay must not take the loopback workspace down with
+            // it: the computer in front of you keeps working.
+            Err(error) => tracing::error!(%error, "could not attach the relay route"),
+        }
+    }
+
+    let listener = TcpListener::bind(listen).await?;
+    tracing::info!(url = %format!("http://{listen}"), "Leave local workspace is ready");
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async {
+            if let Err(error) = tokio::signal::ctrl_c().await {
+                tracing::error!(%error, "could not install Ctrl+C handler");
+            }
+        })
+        .await?;
+    Ok(())
+}
+
+/// Build the workspace API.
+///
+/// Both transports serve this same router: the loopback listener, and the
+/// relay tunnel in [`crate::relay_tunnel`]. A capability cannot exist on one
+/// and be missing from the other.
+pub(crate) fn build_router(
+    state: LocalServerState,
+    web_dir: &std::path::Path,
+    index: &std::path::Path,
+) -> Router {
+    let static_files = ServeDir::new(web_dir).fallback(ServeFile::new(index));
+    Router::new()
         .route("/api/v1/local/status", get(status))
         .route("/api/v1/local/openapi.json", get(local_openapi))
         .route("/api/v1/local/workspaces", get(workspaces))
@@ -325,18 +377,7 @@ pub async fn serve_local(
             state.clone(),
             authorize_access,
         ))
-        .with_state(state);
-
-    let listener = TcpListener::bind(listen).await?;
-    tracing::info!(url = %format!("http://{listen}"), "Leave local workspace is ready");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            if let Err(error) = tokio::signal::ctrl_c().await {
-                tracing::error!(%error, "could not install Ctrl+C handler");
-            }
-        })
-        .await?;
-    Ok(())
+        .with_state(state)
 }
 
 async fn status(State(state): State<LocalServerState>) -> Json<LocalStatus> {

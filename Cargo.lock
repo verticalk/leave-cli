@@ -2138,6 +2138,7 @@ dependencies = [
  "leave-core",
  "leave-crypto",
  "leave-protocol",
+ "leave-relay",
  "leave-transport",
  "portable-pty",
  "reqwest",
@@ -2146,6 +2147,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-tungstenite",
+ "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",
@@ -2203,6 +2205,7 @@ dependencies = [
  "prost-build",
  "protoc-bin-vendored",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
  "uuid",
 ]

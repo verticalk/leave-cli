@@ -6,6 +6,7 @@ mod customization;
 mod git;
 mod local_server;
 mod preview;
+mod relay_tunnel;
 mod service;
 mod setup_server;
 mod terminal;
@@ -91,6 +92,12 @@ struct ConnectArgs {
     /// Repository or workspace directory to approve.
     #[arg(default_value = ".")]
     path: PathBuf,
+    /// Also serve this workspace through a relay, for access outside a tailnet.
+    #[arg(long, env = "LEAVE_RELAY_URL")]
+    relay: Option<String>,
+    /// Secret the relay requires to register a route.
+    #[arg(long, env = "LEAVE_RELAY_REGISTRATION_SECRET", hide_env_values = true)]
+    relay_registration_secret: Option<String>,
     /// Display name for a newly registered workspace.
     #[arg(long)]
     name: Option<String>,
@@ -155,6 +162,12 @@ struct ServeArgs {
     /// Publish the loopback host through owner-restricted Tailscale Serve.
     #[arg(long)]
     away: bool,
+    /// Also serve this workspace through a relay, for access outside a tailnet.
+    #[arg(long, env = "LEAVE_RELAY_URL")]
+    relay: Option<String>,
+    /// Secret the relay requires to register a route.
+    #[arg(long, env = "LEAVE_RELAY_REGISTRATION_SECRET", hide_env_values = true)]
+    relay_registration_secret: Option<String>,
     /// Loopback port for the local PWA and API.
     #[arg(long, default_value_t = 8788)]
     port: u16,
@@ -394,6 +407,16 @@ async fn serve(store: &EventStore, args: ServeArgs) -> anyhow::Result<()> {
             terminal_granted: args.grant_terminal,
             preview_granted: args.grant_preview,
             chrome_binary,
+            relay: match (args.relay, args.relay_registration_secret) {
+                (Some(url), Some(registration_secret)) => Some(local_server::RelayAccess {
+                    url,
+                    registration_secret,
+                }),
+                (Some(_), None) => bail!(
+                    "--relay needs --relay-registration-secret, or LEAVE_RELAY_REGISTRATION_SECRET in the environment"
+                ),
+                _ => None,
+            },
         },
     )
     .await
@@ -480,6 +503,8 @@ async fn connect(
             workspace: workspace.id,
             remote: false,
             away: args.away,
+            relay: args.relay,
+            relay_registration_secret: args.relay_registration_secret,
             port: args.port,
             web_dir: args.web_dir,
             acp_command: None,

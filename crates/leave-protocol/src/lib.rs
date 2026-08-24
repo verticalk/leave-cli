@@ -10,6 +10,8 @@ pub const PROTOCOL_VERSION: u32 = 1;
 /// Hard upper bound for an encrypted WebSocket application frame.
 pub const MAX_CIPHERTEXT_BYTES: usize = 8 * 1024 * 1024;
 
+pub mod tunnel;
+
 /// Generated Protobuf messages. Inner messages only appear inside MLS ciphertext.
 #[allow(missing_docs)]
 pub mod wire {
