@@ -20,6 +20,7 @@ openmls_memory_storage = "0.6.0-rc.4"
 openmls_rust_crypto = "0.6.0-rc.4"
 openmls_traits = "0.6.0-rc.4"
 serde.workspace = true
+subtle.workspace = true
 thiserror.workspace = true
 tls_codec = "0.4.2"
 zeroize.workspace = true

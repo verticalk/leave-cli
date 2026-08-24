@@ -16,7 +16,7 @@ pub mod vault;
 pub use error::CryptoError;
 pub use identity::{CIPHERSUITE, DeviceIdentity};
 pub use session::{Invitation, OpenedMessage, WorkspaceSession};
-pub use vault::{STATE_KEY_BYTES, StateKey, open_state, seal_state};
+pub use vault::{STATE_KEY_BYTES, StateKey, open_state, seal_state, subtle_eq};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

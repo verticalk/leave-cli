@@ -16,6 +16,7 @@ futures-util.workspace = true
 leave-core = { path = "../../crates/leave-core", version = "0.1.0-alpha.1" }
 leave-crypto = { path = "../../crates/leave-crypto", version = "0.1.0-alpha.1" }
 leave-protocol = { path = "../../crates/leave-protocol", version = "0.1.0-alpha.1" }
+leave-transport = { path = "../../crates/leave-transport", version = "0.1.0-alpha.1" }
 portable-pty.workspace = true
 reqwest.workspace = true
 serde.workspace = true

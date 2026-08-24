@@ -6,6 +6,7 @@ members = [
   "crates/leave-core",
   "crates/leave-crypto",
   "crates/leave-protocol",
+  "crates/leave-transport",
 ]
 
 [workspace.package]

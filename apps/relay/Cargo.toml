@@ -6,9 +6,18 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[lib]
+name = "leave_relay"
+path = "src/lib.rs"
+
+[[bin]]
+name = "leave-relay"
+path = "src/main.rs"
+
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
+blake3.workspace = true
 bytes.workspace = true
 futures-util.workspace = true
 http.workspace = true

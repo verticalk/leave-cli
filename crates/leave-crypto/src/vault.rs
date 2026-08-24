@@ -14,6 +14,7 @@ use chacha20poly1305::{
     XChaCha20Poly1305, XNonce,
     aead::{Aead, KeyInit, OsRng, rand_core::RngCore},
 };
+use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Length of a state key in bytes.
@@ -105,6 +106,18 @@ pub fn open_state(key: &StateKey, sealed: &[u8]) -> Result<Vec<u8>> {
         .map_err(|_| CryptoError::Open("saved session did not decrypt".into()))
 }
 
+/// Compare two byte strings without leaking where they differ.
+///
+/// Token and hash comparisons must not finish early on the first wrong byte;
+/// timing would otherwise let an attacker recover a value one byte at a time.
+#[must_use]
+pub fn subtle_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.ct_eq(right).into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,6 +174,14 @@ mod tests {
     fn a_key_of_the_wrong_length_is_refused() {
         assert!(StateKey::from_bytes(b"short").is_err());
         assert!(StateKey::from_bytes(&[0_u8; STATE_KEY_BYTES]).is_ok());
+    }
+
+    #[test]
+    fn constant_time_compare_matches_equality() {
+        assert!(subtle_eq(b"same", b"same"));
+        assert!(!subtle_eq(b"same", b"different"));
+        assert!(!subtle_eq(b"same", b"sam"));
+        assert!(subtle_eq(b"", b""));
     }
 
     #[test]
