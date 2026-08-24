@@ -25,6 +25,21 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.0
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@0.2.127
+      # Proves the browser endpoint runs the same MLS code as the host, and
+      # that each build opens the golden vector the other one produced.
+      - run: cargo test -p leave-crypto --target wasm32-unknown-unknown
+
   web:
     runs-on: ubuntu-latest
     steps:

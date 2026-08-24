@@ -55,14 +55,37 @@ Re-add the OpenMLS dependency in the same change that starts using it, and
 audit the graph as it stands then. That is a hygiene fix, not an exception
 list: no advisory was ignored, suppressed, or waived.
 
-## What is missing before the gate matters
+## Interoperability evidence
 
-The gate protects a transport that does not exist yet. `leave-crypto` contains
-the release-status enum and no cryptography. The host has no relay client, the
-relay's `hosts`, `workspaces`, `devices`, and `organizations` endpoints are
-fixed `503` responses, its WebSocket route serves loopback demo mode only, and
-`leave login` and `leave pair` return an error instead of enrolling anything.
+The third condition asks that the native and WebAssembly builds pass the same
+golden vectors and interoperate. Both halves now exist and run in CI:
 
-Changing the release status to `Passed` would therefore not enable remote
-access. It would start a relay that answers every request with `503`, while
-asserting evidence that no test or review has produced.
+- `crates/leave-crypto/tests/fixtures/native_vector.bin` is produced by the
+  native build. `tests/wasm_interop.rs` opens it inside WebAssembly.
+- `crates/leave-crypto/tests/fixtures/wasm_vector.bin` is produced by the
+  WebAssembly build. `tests/interop.rs` opens it natively.
+
+A vector is a saved session plus a frame sealed for it, so each build is
+handed bytes the other one wrote and must recover the same plaintext and
+authenticate the same sender. Sealing is randomized, so the vectors pin down
+the direction that can be compared exactly. Regenerate the WebAssembly
+fixture with the `emit-vectors` feature described in `tests/wasm_emit_vector.rs`.
+
+The browser build is the same code as the host: one ciphersuite, one session
+implementation, one test suite. Only the thin `browser` module differs, and it
+holds no logic of its own.
+
+## What is still missing
+
+The fourth condition is only partly met. A browser session survives being
+exported and reloaded, which `wasm_interop.rs` checks, but there is no
+IndexedDB durability test, no upgrade test, and no spent-key deletion test.
+
+The fifth condition, an independent cryptography review, has not started. It
+will need to weigh the choice of OpenMLS 0.9 while it is a release candidate:
+the 0.8 line is not an option, because its provider graph pins
+libcrux-secrets =0.0.5 and libcrux-sha3 0.0.8 with unfixable advisories.
+
+Beyond the gate, the transport is real but incomplete: workspace commands and
+events do not yet travel over it, and there are no hosted accounts, passkey
+enrollment, or ciphertext retention.

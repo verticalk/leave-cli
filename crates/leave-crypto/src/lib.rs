@@ -6,17 +6,26 @@
 //! Production remote access remains deliberately disabled until the remaining
 //! release-gate evidence is recorded.
 
+#[cfg(target_arch = "wasm32")]
+pub mod browser;
 mod codec;
 pub mod error;
 pub mod identity;
+pub mod pairing;
 mod provider;
 pub mod session;
 pub mod vault;
+pub mod vectors;
 
 pub use error::CryptoError;
 pub use identity::{CIPHERSUITE, DeviceIdentity};
+pub use pairing::{
+    PAIRING_SECRET_BYTES, PairingSecret, accept_pairing, is_pairing_frame, pairing_request,
+    pairing_welcome, read_pairing_welcome,
+};
 pub use session::{Invitation, OpenedMessage, WorkspaceSession};
 pub use vault::{STATE_KEY_BYTES, StateKey, open_state, seal_state, subtle_eq};
+pub use vectors::InteropVector;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

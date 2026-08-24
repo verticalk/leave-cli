@@ -1,0 +1,5 @@
+# WebAssembly tests run under Node through wasm-bindgen's runner, so
+# `cargo test --target wasm32-unknown-unknown` exercises the same MLS code the
+# installed PWA loads.
+[target.wasm32-unknown-unknown]
+runner = "wasm-bindgen-test-runner"

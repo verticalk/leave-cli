@@ -9,10 +9,15 @@ rust-version.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# Regenerates the WebAssembly interoperability fixture. Not part of a build.
+emit-vectors = []
+
 [dependencies]
 # OpenMLS 0.9 is used instead of 0.8: the 0.8 provider graph pins
 # libcrux-secrets =0.0.5 and libcrux-sha3 0.0.8, both carrying unfixable
 # high-severity advisories. The 0.9 graph audits clean.
+blake3.workspace = true
 chacha20poly1305 = "0.10.1"
 openmls = "0.9.0-rc.4"
 openmls_basic_credential = "0.6.0-rc.4"
@@ -27,3 +32,15 @@ zeroize.workspace = true
 
 [lints]
 workspace = true
+
+# WebAssembly needs each random source pointed at the browser explicitly.
+# Several dependency versions of getrandom coexist, and each names the
+# browser backend differently.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3.77"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
+getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+openmls = { version = "0.9.0-rc.4", features = ["js"] }
+wasm-bindgen = "0.2.127"

@@ -214,3 +214,87 @@ async fn oversized_and_empty_frames_are_refused_before_they_reach_the_relay() ->
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_new_phone_pairs_over_the_relay_and_then_reads_work() -> anyhow::Result<()> {
+    let relay = TestRelay::start().await?;
+    let (route_id, token) = relay.route().await?;
+
+    // The host has a workspace and shows a pairing code.
+    let mut host_session =
+        WorkspaceSession::create(DeviceIdentity::generate("host")?, "workspace-1")?;
+    let secret = leave_crypto::PairingSecret::generate();
+    let mut host = RelayClient::attach(&relay.url(), &route_id, &token).await?;
+
+    // The phone scanned the code, so it holds the route token and the secret.
+    let phone_identity = DeviceIdentity::generate("phone")?;
+    let mut phone = RelayClient::attach(&relay.url(), &route_id, &token).await?;
+    phone
+        .send(&leave_crypto::pairing_request(
+            &phone_identity.publish_key_package()?,
+            &secret,
+        ))
+        .await?;
+
+    // The host admits it and answers with the welcome.
+    let request = tokio::time::timeout(Duration::from_secs(5), host.recv())
+        .await?
+        .transpose()
+        .ok_or_else(|| anyhow::anyhow!("the route closed before delivering"))??;
+    assert!(leave_crypto::is_pairing_frame(&request));
+    let invitation = leave_crypto::accept_pairing(&mut host_session, &request, &secret)?;
+    host.send(&leave_crypto::pairing_welcome(&invitation))
+        .await?;
+
+    let welcome = tokio::time::timeout(Duration::from_secs(5), phone.recv())
+        .await?
+        .transpose()
+        .ok_or_else(|| anyhow::anyhow!("the route closed before delivering"))??;
+    let mut phone_session = WorkspaceSession::join(
+        phone_identity,
+        &leave_crypto::read_pairing_welcome(&welcome)?,
+    )?;
+
+    // From here the phone is an ordinary member of the workspace.
+    host.send(&host_session.seal(b"devin needs an approval")?)
+        .await?;
+    let frame = tokio::time::timeout(Duration::from_secs(5), phone.recv())
+        .await?
+        .transpose()
+        .ok_or_else(|| anyhow::anyhow!("the route closed before delivering"))??;
+    let opened = phone_session.open(&frame)?;
+    assert_eq!(opened.plaintext, b"devin needs an approval");
+    assert_eq!(opened.sender_device_id, "host");
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_route_token_alone_does_not_pair_a_device() -> anyhow::Result<()> {
+    let relay = TestRelay::start().await?;
+    let (route_id, token) = relay.route().await?;
+    let mut host_session =
+        WorkspaceSession::create(DeviceIdentity::generate("host")?, "workspace-1")?;
+    let secret = leave_crypto::PairingSecret::generate();
+    let mut host = RelayClient::attach(&relay.url(), &route_id, &token).await?;
+
+    // An attacker who obtained the route token, but never saw the QR code.
+    let attacker = DeviceIdentity::generate("attacker")?;
+    let mut intruder = RelayClient::attach(&relay.url(), &route_id, &token).await?;
+    intruder
+        .send(&leave_crypto::pairing_request(
+            &attacker.publish_key_package()?,
+            &leave_crypto::PairingSecret::generate(),
+        ))
+        .await?;
+
+    let request = tokio::time::timeout(Duration::from_secs(5), host.recv())
+        .await?
+        .transpose()
+        .ok_or_else(|| anyhow::anyhow!("the route closed before delivering"))??;
+    assert!(
+        leave_crypto::accept_pairing(&mut host_session, &request, &secret).is_err(),
+        "attaching to the relay must not be enough to join the workspace"
+    );
+    assert_eq!(host_session.member_device_ids()?, ["host"]);
+    Ok(())
+}
