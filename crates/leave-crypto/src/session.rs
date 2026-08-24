@@ -7,8 +7,10 @@
 //! payload itself.
 
 use crate::{
+    codec::{put_bytes, put_header, take_bytes, take_header},
     error::{CryptoError, Result},
     identity::{DeviceIdentity, identity_of, parse_key_package},
+    provider::LeaveProvider,
 };
 use openmls::{
     group::{MlsGroup, MlsGroupCreateConfig, MlsGroupJoinConfig, StagedWelcome},
@@ -18,6 +20,7 @@ use openmls::{
         tls_codec::{Deserialize as TlsDeserialize, Serialize as TlsSerialize},
     },
 };
+use openmls_traits::OpenMlsProvider;
 
 /// Bytes of padding applied to every application message.
 ///
@@ -228,6 +231,47 @@ impl WorkspaceSession {
         self.identity.device_id()
     }
 
+    /// Serialize everything needed to resume this session after a restart.
+    ///
+    /// The result is secret: it contains this device's signing key and the
+    /// group's current ratchet secrets. Store it where workspace content
+    /// itself would be safe, never in a log or a backup that travels.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CryptoError::Encode`] when the session cannot be serialized.
+    pub fn export_state(&self) -> Result<Vec<u8>> {
+        let mut buffer = Vec::new();
+        put_header(&mut buffer);
+        put_bytes(&mut buffer, self.identity.device_id().as_bytes());
+        put_bytes(&mut buffer, self.group.group_id().as_slice());
+        put_bytes(&mut buffer, &self.identity.signature_public_key());
+        self.identity.provider().export(&mut buffer)?;
+        Ok(buffer)
+    }
+
+    /// Resume a session previously written by [`Self::export_state`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CryptoError::Group`] when the state is unreadable or no
+    /// longer contains the group, and [`CryptoError::Identity`] when the
+    /// device's signing key is missing.
+    pub fn restore(state: &[u8]) -> Result<Self> {
+        let mut cursor = state;
+        take_header(&mut cursor)?;
+        let device_id = String::from_utf8(take_bytes(&mut cursor)?.to_vec())
+            .map_err(|_| CryptoError::MalformedIdentity)?;
+        let group_id = GroupId::from_slice(take_bytes(&mut cursor)?);
+        let signature_public_key = take_bytes(&mut cursor)?.to_vec();
+        let provider = LeaveProvider::restore(&mut cursor)?;
+        let identity = DeviceIdentity::from_storage(&device_id, provider, &signature_public_key)?;
+        let group = MlsGroup::load(identity.provider().storage(), &group_id)
+            .map_err(|error| CryptoError::Group(error.to_string()))?
+            .ok_or_else(|| CryptoError::Group("the saved workspace group is missing".into()))?;
+        Ok(Self { identity, group })
+    }
+
     fn process(&mut self, bytes: &[u8]) -> Result<openmls::prelude::ProcessedMessage> {
         let message = MlsMessageIn::tls_deserialize_exact(bytes)
             .map_err(|error| CryptoError::Open(error.to_string()))?;
@@ -430,6 +474,104 @@ mod tests {
         let invitation = host.add_device(&phone.publish_key_package()?)?;
         let attacker = DeviceIdentity::generate("attacker")?;
         assert!(WorkspaceSession::join(attacker, &invitation.welcome).is_err());
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod persistence_tests {
+    use super::*;
+    use crate::identity::DeviceIdentity;
+
+    /// Build a host and one joined phone, as `workspace` does in the tests above.
+    fn paired() -> Result<(WorkspaceSession, WorkspaceSession)> {
+        let mut host = WorkspaceSession::create(DeviceIdentity::generate("host")?, "workspace-1")?;
+        let phone = DeviceIdentity::generate("phone")?;
+        let invitation = host.add_device(&phone.publish_key_package()?)?;
+        let phone = WorkspaceSession::join(phone, &invitation.welcome)?;
+        Ok((host, phone))
+    }
+
+    #[test]
+    fn a_restarted_host_keeps_talking_to_a_paired_phone() -> Result<()> {
+        let (host, mut phone) = paired()?;
+        let state = host.export_state()?;
+        drop(host);
+
+        let mut host = WorkspaceSession::restore(&state)?;
+        assert_eq!(host.device_id(), "host");
+        let frame = host.seal(b"still paired after a restart")?;
+        assert_eq!(
+            phone.open(&frame)?.plaintext,
+            b"still paired after a restart"
+        );
+
+        let reply = phone.seal(b"and back again")?;
+        let opened = host.open(&reply)?;
+        assert_eq!(opened.plaintext, b"and back again");
+        assert_eq!(opened.sender_device_id, "phone");
+        Ok(())
+    }
+
+    #[test]
+    fn restoring_preserves_membership_and_epoch() -> Result<()> {
+        let (host, _phone) = paired()?;
+        let epoch = host.epoch();
+        let mut members = host.member_device_ids()?;
+        members.sort();
+
+        let restored = WorkspaceSession::restore(&host.export_state()?)?;
+        assert_eq!(restored.epoch(), epoch);
+        let mut restored_members = restored.member_device_ids()?;
+        restored_members.sort();
+        assert_eq!(restored_members, members);
+        Ok(())
+    }
+
+    #[test]
+    fn a_revoked_device_stays_revoked_after_a_restart() -> Result<()> {
+        let (mut host, mut phone) = paired()?;
+        host.remove_device("phone")?;
+
+        let mut host = WorkspaceSession::restore(&host.export_state()?)?;
+        let frame = host.seal(b"after revocation")?;
+        assert!(
+            phone.open(&frame).is_err(),
+            "restoring must not resurrect a removed device"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn saved_state_is_not_readable_as_plaintext() -> Result<()> {
+        let (mut host, _phone) = paired()?;
+        host.seal(b"topsecret-marker-value")?;
+        let state = host.export_state()?;
+        assert!(
+            !state
+                .windows(b"topsecret-marker-value".len())
+                .any(|window| window == b"topsecret-marker-value"),
+            "session state must not carry message plaintext"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn foreign_or_damaged_state_is_refused() -> Result<()> {
+        assert!(WorkspaceSession::restore(b"").is_err());
+        assert!(WorkspaceSession::restore(b"LEAVEMLS\x01junk").is_err());
+
+        let (host, _phone) = paired()?;
+        let mut state = host.export_state()?;
+        state.truncate(state.len() / 2);
+        assert!(WorkspaceSession::restore(&state).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn export_is_stable_for_an_unchanged_session() -> Result<()> {
+        let (host, _phone) = paired()?;
+        assert_eq!(host.export_state()?, host.export_state()?);
         Ok(())
     }
 }

@@ -1,13 +1,13 @@
 //! Long-term device identity and the key packages that invite it to a group.
 
 use crate::error::{CryptoError, Result};
+use crate::provider::LeaveProvider;
 use openmls::prelude::{
     BasicCredential, Ciphersuite, CredentialWithKey, KeyPackage, KeyPackageBundle,
     MlsMessageBodyIn, MlsMessageIn, MlsMessageOut, ProtocolVersion,
     tls_codec::{Deserialize as TlsDeserialize, Serialize as TlsSerialize},
 };
 use openmls_basic_credential::SignatureKeyPair;
-use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_traits::OpenMlsProvider;
 
 /// The ciphersuite every Leave workspace uses.
@@ -21,7 +21,7 @@ pub const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_
 /// public key package it publishes does.
 pub struct DeviceIdentity {
     device_id: String,
-    provider: OpenMlsRustCrypto,
+    provider: LeaveProvider,
     signer: SignatureKeyPair,
     credential: CredentialWithKey,
 }
@@ -34,7 +34,7 @@ impl DeviceIdentity {
     /// Returns [`CryptoError::Identity`] when the provider cannot create or
     /// store the signature key pair.
     pub fn generate(device_id: &str) -> Result<Self> {
-        let provider = OpenMlsRustCrypto::default();
+        let provider = LeaveProvider::default();
         let signer = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())
             .map_err(|error| CryptoError::Identity(error.to_string()))?;
         signer
@@ -81,7 +81,42 @@ impl DeviceIdentity {
             .map_err(|error| CryptoError::KeyPackage(error.to_string()))
     }
 
-    pub(crate) fn provider(&self) -> &OpenMlsRustCrypto {
+    /// Rebuild a device identity from previously exported storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CryptoError::Identity`] when the storage does not contain the
+    /// signature key pair this device was created with.
+    pub(crate) fn from_storage(
+        device_id: &str,
+        provider: LeaveProvider,
+        signature_public_key: &[u8],
+    ) -> Result<Self> {
+        let signer = SignatureKeyPair::read(
+            provider.storage(),
+            signature_public_key,
+            CIPHERSUITE.signature_algorithm(),
+        )
+        .ok_or_else(|| CryptoError::Identity("stored signing key is missing".into()))?;
+        let credential = CredentialWithKey {
+            credential: BasicCredential::new(device_id.as_bytes().to_vec()).into(),
+            signature_key: signer.to_public_vec().into(),
+        };
+        Ok(Self {
+            device_id: device_id.to_owned(),
+            provider,
+            signer,
+            credential,
+        })
+    }
+
+    /// The public half of this device's signing key.
+    #[must_use]
+    pub fn signature_public_key(&self) -> Vec<u8> {
+        self.signer.to_public_vec()
+    }
+
+    pub(crate) fn provider(&self) -> &LeaveProvider {
         &self.provider
     }
 
@@ -100,7 +135,7 @@ impl DeviceIdentity {
 ///
 /// Returns [`CryptoError::KeyPackage`] when the bytes are not a key package
 /// for the workspace ciphersuite.
-pub(crate) fn parse_key_package(bytes: &[u8], provider: &OpenMlsRustCrypto) -> Result<KeyPackage> {
+pub(crate) fn parse_key_package(bytes: &[u8], provider: &LeaveProvider) -> Result<KeyPackage> {
     let message = MlsMessageIn::tls_deserialize_exact(bytes)
         .map_err(|error| CryptoError::KeyPackage(error.to_string()))?;
     let MlsMessageBodyIn::KeyPackage(key_package) = message.extract() else {

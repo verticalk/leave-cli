@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 # OpenMLS 0.9 is used instead of 0.8: the 0.8 provider graph pins
 # libcrux-secrets =0.0.5 and libcrux-sha3 0.0.8, both carrying unfixable
 # high-severity advisories. The 0.9 graph audits clean.
+chacha20poly1305 = "0.10.1"
 openmls = "0.9.0-rc.4"
 openmls_basic_credential = "0.6.0-rc.4"
 openmls_memory_storage = "0.6.0-rc.4"
