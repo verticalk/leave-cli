@@ -46,7 +46,7 @@ tempfile = "3.21"
 time = { version = "0.3", features = ["formatting", "macros", "serde"] }
 tokio = { version = "1.0", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["codec"] }
-tokio-tungstenite = "0.29"
+tokio-tungstenite = "0.30"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "fs", "limit", "request-id", "trace"] }
 tracing = "0.1"
