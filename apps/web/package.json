@@ -21,7 +21,7 @@
     "@tanstack/react-router": "^1.131.49",
     "@uiw/react-codemirror": "^4.25.2",
     "@xterm/xterm": "^6.0.0",
-    "react": "19.2.0",
+    "react": "19.2.8",
     "react-dom": "19.2.0"
   },
   "devDependencies": {
