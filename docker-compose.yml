@@ -36,6 +36,9 @@ services:
       LEAVE_REDIS_URL: redis://redis:6379
       LEAVE_PUBLIC_ORIGIN: ${LEAVE_PUBLIC_ORIGIN:-http://localhost:5173}
       LEAVE_DEMO_MODE: ${LEAVE_DEMO_MODE:-false}
+      # Without this the relay refuses to register routes, so no endpoint can
+      # attach. Generate one with `openssl rand -hex 32`.
+      LEAVE_RELAY_REGISTRATION_SECRET: ${LEAVE_RELAY_REGISTRATION_SECRET:-}
     depends_on:
       postgres:
         condition: service_healthy
