@@ -12,9 +12,12 @@ $WebDirectory = Join-Path $InstallPrefix "share\leave\web"
 
 Push-Location $Repository
 try {
-    corepack pnpm install --frozen-lockfile
+    if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+        throw "pnpm was not found. Run .\infra\bootstrap.ps1, which installs the pinned version."
+    }
+    pnpm install --frozen-lockfile
     if ($LASTEXITCODE -ne 0) { throw "pnpm install failed" }
-    corepack pnpm --filter '@leave/web' build
+    pnpm --filter '@leave/web' build
     if ($LASTEXITCODE -ne 0) { throw "PWA build failed" }
     cargo build --release -p leave
     if ($LASTEXITCODE -ne 0) { throw "Rust build failed" }

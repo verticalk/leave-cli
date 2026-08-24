@@ -5,12 +5,12 @@ It uses Cognition's supported CLI and ACP surfaces, keeps repository access on
 the host, and gives phones and tablets a purpose-built workspace for sessions,
 approvals, files, Git, terminals, and app previews.
 
-This repository is an early personal-workspace alpha. Public internet relay,
-pairing, and account enrollment fail closed until the cryptography and legal
-release gates pass. Private away access is available through Tailscale Serve:
-Leave still binds to loopback and accepts the host owner's injected Tailscale
-identity. The PWA is backed by the host's real SQLite event log and ACP
-connection; it does not use demo workspace or session data.
+This repository is an early personal-workspace alpha. Hosted accounts and
+account enrollment fail closed until the cryptography release gate passes.
+Private away access is available through Tailscale Serve: Leave still binds to
+loopback and accepts the host owner's injected Tailscale identity. The PWA is
+backed by the host's real SQLite event log and ACP connection; it does not use
+demo workspace or session data.
 
 Leave is an independent project. It is not affiliated with, endorsed by, or
 sponsored by Cognition. Devin is a trademark of its respective owner.
@@ -55,8 +55,9 @@ apps/leave             local host daemon and CLI
 apps/relay             blind relay and metadata API boundary
 apps/web               React PWA
 crates/leave-core      local event store and guarded filesystem
-crates/leave-crypto    native/WASM crypto release gate
-crates/leave-protocol  Protobuf wire types and authorization policy
+crates/leave-crypto    MLS workspace sessions, pairing, and the release gate
+crates/leave-protocol  wire types, tunnelled requests, and authorization policy
+crates/leave-transport relay client used by the host
 proto                  public protocol schema
 docs                   architecture, threat model, and compatibility
 ```
@@ -135,7 +136,6 @@ Do not use Tailscale Funnel or expose port 8788 through a router.
 ### Doing it from the command line instead
 
 ```bash
-corepack enable
 pnpm install --frozen-lockfile
 pnpm build
 cargo build -p leave

@@ -8,8 +8,12 @@ binary_dir="$install_prefix/bin"
 web_dir="$install_prefix/share/leave/web"
 
 cd "$repository_dir"
-corepack pnpm install --frozen-lockfile
-corepack pnpm --filter @leave/web build
+if ! command -v pnpm >/dev/null 2>&1; then
+  printf '%s\n' "pnpm was not found. Run ./infra/bootstrap.sh, which installs the pinned version." >&2
+  exit 1
+fi
+pnpm install --frozen-lockfile
+pnpm --filter @leave/web build
 cargo build --release -p leave
 
 install -d "$binary_dir" "$web_dir"
