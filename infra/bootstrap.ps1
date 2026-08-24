@@ -84,7 +84,39 @@ function Install-Node {
   Write-Host "Node.js installed under $nodeDir"
 }
 
+function Get-PnpmPin {
+  $package = Get-Content (Join-Path $repositoryDir 'package.json') -Raw
+  if ($package -match '"packageManager"\s*:\s*"pnpm@([^"]+)"') { return $Matches[1] }
+  Stop-Bootstrap 'package.json does not pin a pnpm version'
+}
+
+function Install-Pnpm {
+  $wanted = Get-PnpmPin
+  if ((Test-Command 'pnpm') -and ((pnpm --version) -eq $wanted)) {
+    Write-Host "pnpm: found $wanted"
+    return
+  }
+  $pnpmHome = Join-Path $toolchainDir 'pnpm'
+  $pnpmBinary = Join-Path $pnpmHome 'pnpm.cmd'
+  if ((Test-Path $pnpmBinary) -and ((& $pnpmBinary --version) -eq $wanted)) {
+    $env:PATH = "$pnpmHome;$env:PATH"
+    Write-Host "pnpm: found $wanted"
+    return
+  }
+
+  Write-Step "Installing pnpm $wanted for your user account"
+  if (-not (Test-Command 'npm')) { Stop-Bootstrap 'npm is missing from this Node.js installation' }
+  # Deliberately not corepack: the version bundled with several Node releases
+  # carries npm registry signing keys that have since rotated, and fails with
+  # "Cannot find matching keyid" before it reads the pinned version.
+  npm install -g --silent --prefix $pnpmHome "pnpm@$wanted" | Out-Null
+  if ($LASTEXITCODE -ne 0) { Stop-Bootstrap "could not install pnpm $wanted" }
+  $env:PATH = "$pnpmHome;$env:PATH"
+  Write-Host "pnpm installed under $pnpmHome"
+}
+
 Write-Step 'Checking this computer'
+
 if (-not (Test-Path (Join-Path $repositoryDir 'Cargo.toml'))) {
   Stop-Bootstrap 'run this script from a Leave checkout'
 }
@@ -112,8 +144,7 @@ if (Test-NodeVersion) {
   Install-Node
 }
 
-if (-not (Test-Command 'corepack')) { Stop-Bootstrap 'corepack is missing from this Node.js installation' }
-corepack enable | Out-Null
+Install-Pnpm
 
 Write-Step 'Building Leave (this takes a few minutes the first time)'
 $env:LEAVE_INSTALL_PREFIX = $Prefix
