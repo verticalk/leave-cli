@@ -97,6 +97,43 @@ install_rust() {
   say "Rust installed under $HOME/.cargo"
 }
 
+pnpm_pin() {
+  # The pinned version lives in package.json, so one edit moves every install.
+  sed -n 's/.*"packageManager": *"pnpm@\([^"]*\)".*/\1/p' "$repository_dir/package.json" | head -1
+}
+
+ensure_pnpm() {
+  wanted=$(pnpm_pin)
+  [ -n "$wanted" ] || fail "package.json does not pin a pnpm version"
+
+  if have pnpm && [ "$(pnpm --version 2>/dev/null)" = "$wanted" ]; then
+    say "pnpm: found $wanted"
+    return 0
+  fi
+
+  pnpm_home="$toolchain_dir/pnpm"
+  if [ -x "$pnpm_home/bin/pnpm" ] && [ "$("$pnpm_home/bin/pnpm" --version 2>/dev/null)" = "$wanted" ]; then
+    PATH="$pnpm_home/bin:$PATH"
+    export PATH
+    say "pnpm: found $wanted"
+    return 0
+  fi
+
+  step "Installing pnpm $wanted for your user account"
+  have npm || fail "npm is missing from this Node.js installation"
+  # Deliberately not corepack. The corepack bundled with several Node
+  # releases carries npm registry signing keys that have since rotated, and
+  # it fails with "Cannot find matching keyid" before it ever reads the
+  # pinned version above. npm installs that exact version without needing
+  # those keys, or an administrator.
+  npm install -g --silent --prefix "$pnpm_home" "pnpm@$wanted" >/dev/null ||
+    fail "could not install pnpm $wanted"
+  PATH="$pnpm_home/bin:$PATH"
+  export PATH
+  have pnpm || fail "pnpm was installed but is not on PATH"
+  say "pnpm installed under $pnpm_home"
+}
+
 install_node() {
   step "Installing Node.js $node_version for your user account"
   confirm "Download Node.js $node_version from https://nodejs.org?" ||
@@ -142,8 +179,7 @@ else
 fi
 export PATH
 
-have corepack || fail "corepack is missing from this Node.js installation"
-corepack enable >/dev/null 2>&1 || true
+ensure_pnpm
 
 step "Building Leave (this takes a few minutes the first time)"
 LEAVE_INSTALL_PREFIX="$install_prefix" "$script_dir/install-local.sh"
