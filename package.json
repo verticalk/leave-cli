@@ -1,0 +1,17 @@
+{
+  "name": "leave-cli",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "corepack pnpm --filter @leave/web build",
+    "check": "corepack pnpm --filter @leave/web check",
+    "dev": "corepack pnpm --filter @leave/web dev",
+    "e2e": "corepack pnpm --filter @leave/web e2e",
+    "test": "corepack pnpm --filter @leave/web test"
+  }
+}

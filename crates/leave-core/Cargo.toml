@@ -1,0 +1,28 @@
+[package]
+name = "leave-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+atomic-write-file.workspace = true
+blake3.workspace = true
+hex.workspace = true
+leave-protocol = { path = "../leave-protocol", version = "0.1.0-alpha.1" }
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile = "3.21"
+
+[lints]
+workspace = true

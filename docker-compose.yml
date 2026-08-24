@@ -1,0 +1,58 @@
+name: leave
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: leave
+      POSTGRES_USER: leave
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-leave-local-only}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U leave"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - leave-postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - leave-redis:/data
+
+  relay:
+    build:
+      context: .
+      dockerfile: infra/relay.Dockerfile
+    environment:
+      LEAVE_RELAY_BIND: 0.0.0.0:8787
+      LEAVE_POSTGRES_URL: postgres://leave:${POSTGRES_PASSWORD:-leave-local-only}@postgres/leave
+      LEAVE_REDIS_URL: redis://redis:6379
+      LEAVE_PUBLIC_ORIGIN: ${LEAVE_PUBLIC_ORIGIN:-http://localhost:5173}
+      LEAVE_DEMO_MODE: ${LEAVE_DEMO_MODE:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8787:8787"
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/web.Dockerfile
+    depends_on:
+      - relay
+    ports:
+      - "127.0.0.1:5173:8080"
+
+volumes:
+  leave-postgres:
+  leave-redis:

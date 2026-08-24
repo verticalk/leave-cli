@@ -1,0 +1,16 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+.pnpm-store/
+node_modules/
+dist/
+target/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+*.db
+*.db-shm
+*.db-wal
+*.log

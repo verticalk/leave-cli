@@ -1,0 +1,114 @@
+syntax = "proto3";
+
+package leave.protocol.v1;
+
+message RelayEnvelope {
+  uint32 protocol_version = 1;
+  string route_id = 2;
+  string message_id = 3;
+  bytes ciphertext = 4;
+}
+
+message SecureMessage {
+  uint32 schema_version = 1;
+  uint64 sequence = 2;
+  string command_id = 3;
+  oneof body {
+    Command command = 10;
+    Event event = 11;
+    Ack ack = 12;
+  }
+}
+
+message Ack {
+  uint64 through_sequence = 1;
+  repeated string event_ids = 2;
+}
+
+message Command {
+  oneof kind {
+    SessionCommand session = 10;
+    PromptCommand prompt = 11;
+    PermissionCommand permission = 12;
+    FileCommand file = 13;
+    GitCommand git = 14;
+    TerminalCommand terminal = 15;
+    PreviewCommand preview = 16;
+    CustomizationCommand customization = 17;
+    HandoffCommand handoff = 18;
+  }
+}
+
+message SessionCommand {
+  string action = 1;
+  string workspace_id = 2;
+  string session_id = 3;
+  uint64 after_sequence = 4;
+}
+
+message PromptCommand {
+  string session_id = 1;
+  string text = 2;
+}
+
+message PermissionCommand {
+  string session_id = 1;
+  string tool_call_id = 2;
+  string decision = 3;
+  int64 expires_at_unix_ms = 4;
+}
+
+message FileCommand {
+  string action = 1;
+  string workspace_id = 2;
+  string relative_path = 3;
+  bytes content = 4;
+  string base_hash = 5;
+}
+
+message GitCommand {
+  string action = 1;
+  string workspace_id = 2;
+  repeated string arguments = 3;
+}
+
+message TerminalCommand {
+  string action = 1;
+  string workspace_id = 2;
+  string terminal_id = 3;
+  bytes data = 4;
+  uint32 columns = 5;
+  uint32 rows = 6;
+}
+
+message PreviewCommand {
+  string action = 1;
+  string workspace_id = 2;
+  string preview_id = 3;
+  string loopback_url = 4;
+  bytes input = 5;
+}
+
+message CustomizationCommand {
+  string action = 1;
+  string workspace_id = 2;
+  string scope = 3;
+  string relative_path = 4;
+  bytes content = 5;
+  string base_hash = 6;
+}
+
+message HandoffCommand {
+  string workspace_id = 1;
+  string session_id = 2;
+}
+
+message Event {
+  string event_id = 1;
+  string workspace_id = 2;
+  string session_id = 3;
+  string kind = 4;
+  int64 occurred_at_unix_ms = 5;
+  bytes payload = 6;
+  string actor_device_id = 7;
+}

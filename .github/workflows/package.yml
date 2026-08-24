@@ -1,0 +1,62 @@
+name: Package candidates
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.0
+        with:
+          targets: ${{ matrix.target }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @leave/web build
+      - run: cargo build --release -p leave --target ${{ matrix.target }}
+      - shell: bash
+        run: |
+          set -eu
+          package_dir="leave-${{ matrix.target }}"
+          mkdir -p "$package_dir/bin" "$package_dir/share/leave/web"
+          if [ -f "target/${{ matrix.target }}/release/leave.exe" ]; then
+            cp "target/${{ matrix.target }}/release/leave.exe" "$package_dir/bin/"
+          else
+            cp "target/${{ matrix.target }}/release/leave" "$package_dir/bin/"
+          fi
+          cp -R apps/web/dist/. "$package_dir/share/leave/web/"
+          cp README.md LICENSE SECURITY.md "$package_dir/"
+          tar -czf "$package_dir.tar.gz" "$package_dir"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: leave-${{ matrix.target }}-unsigned
+          path: leave-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+# This workflow intentionally creates unsigned, private candidate artifacts only.
+# Release publication and signing stay disabled until the Cognition approval and
+# cryptography review gates documented in LEGAL.md and docs/crypto-release-gate.md pass.
