@@ -51,7 +51,7 @@ jobs:
           cp -R apps/web/dist/. "$package_dir/share/leave/web/"
           cp README.md LICENSE SECURITY.md "$package_dir/"
           tar -czf "$package_dir.tar.gz" "$package_dir"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: leave-${{ matrix.target }}-unsigned
           path: leave-${{ matrix.target }}.tar.gz
