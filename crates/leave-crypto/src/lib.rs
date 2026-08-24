@@ -1,7 +1,18 @@
 //! MLS boundary for Leave native and browser endpoints.
 //!
-//! Production remote access remains deliberately disabled until the pinned
-//! `OpenMLS` provider graph is advisory-free and the external review is recorded.
+//! [`WorkspaceSession`] implements the group: application messages, member
+//! addition, and removal with forward key rotation.
+//!
+//! Production remote access remains deliberately disabled until the remaining
+//! release-gate evidence is recorded.
+
+pub mod error;
+pub mod identity;
+pub mod session;
+
+pub use error::CryptoError;
+pub use identity::{CIPHERSUITE, DeviceIdentity};
+pub use session::{Invitation, OpenedMessage, WorkspaceSession};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
