@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type Ref } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -8,6 +8,7 @@ import {
   Copy,
   Desktop,
   DeviceMobile,
+  DownloadSimple,
   FolderOpen,
   GlobeSimple,
   Key,
@@ -17,12 +18,22 @@ import {
   WarningCircle
 } from "@phosphor-icons/react";
 import {
+  connectSetupTailscale,
   fetchSetupStatus,
+  installSetupDevin,
   launchSetupWorkspace,
   loginSetupDevin,
-  selectSetupWorkspace
+  selectSetupWorkspace,
+  LocalApiError
 } from "../lib/api";
-import type { SetupLaunchRequest, SetupStatus, SetupTool } from "../types";
+import { QrCode } from "../components/qr-code";
+import type {
+  SetupLaunchRequest,
+  SetupStatus,
+  SetupTailscaleConnection,
+  SetupTool,
+  SetupToolAction
+} from "../types";
 
 const steps = ["Computer", "Workspace", "Access", "Review"] as const;
 
@@ -51,9 +62,12 @@ export function SetupScreen() {
     retry: false,
     refetchInterval: 5_000
   });
-  const login = useMutation({
-    mutationFn: () => loginSetupDevin(token),
-    onSuccess: (status) => queryClient.setQueryData(["setup-status", token], status)
+  const applyStatus = (status: SetupStatus) => queryClient.setQueryData(["setup-status", token], status);
+  const login = useMutation({ mutationFn: () => loginSetupDevin(token), onSuccess: applyStatus });
+  const install = useMutation({ mutationFn: () => installSetupDevin(token), onSuccess: applyStatus });
+  const tailscale = useMutation({
+    mutationFn: () => connectSetupTailscale(token),
+    onSuccess: () => void setup.refetch()
   });
   const picker = useMutation({
     mutationFn: () => selectSetupWorkspace(token),
@@ -64,7 +78,8 @@ export function SetupScreen() {
   const launch = useMutation({
     mutationFn: (body: SetupLaunchRequest) => launchSetupWorkspace(token, body)
   });
-  const error = setup.error ?? login.error ?? picker.error ?? launch.error;
+  const error = setup.error ?? login.error ?? install.error ?? tailscale.error ?? picker.error ?? launch.error;
+  const pendingAction = login.isPending ? "connectDevin" : install.isPending ? "installDevin" : tailscale.isPending ? "connectTailscale" : undefined;
 
   useEffect(() => {
     if (error) errorRef.current?.focus();
@@ -86,6 +101,12 @@ export function SetupScreen() {
 
   const status = setup.data;
   const canContinue = step === 0 ? status.devin.ready : step === 1 ? Boolean(workspacePath.trim()) : true;
+
+  function runAction(action: SetupToolAction) {
+    if (action.id === "installDevin") install.mutate();
+    else if (action.id === "connectDevin") login.mutate();
+    else tailscale.mutate();
+  }
 
   function next() {
     if (step < steps.length - 1 && canContinue) setStep((current) => current + 1);
@@ -122,13 +143,13 @@ export function SetupScreen() {
         </ol>
       )}
 
-      {error && <div className="setup-error" role="alert" tabIndex={-1} ref={errorRef}><WarningCircle aria-hidden="true" size={19} /><div><strong>Leave needs your attention</strong><span>{error.message}</span></div></div>}
+      {error && <SetupErrorBanner error={error} ref={errorRef} />}
 
       <section className="setup-card">
         {launch.data ? (
           <SuccessStep result={launch.data} />
         ) : step === 0 ? (
-          <ComputerStep status={status} loginPending={login.isPending} onLogin={() => login.mutate()} onRefresh={() => void setup.refetch()} />
+          <ComputerStep status={status} pendingAction={pendingAction} tailscale={tailscale.data} onAction={runAction} onRefresh={() => void setup.refetch()} />
         ) : step === 1 ? (
           <WorkspaceStep value={workspacePath} example={status.workspaceExample} pickerAvailable={status.folderPickerAvailable} pickerPending={picker.isPending} pickerDetail={picker.data?.detail} onChange={setWorkspacePath} onPick={() => picker.mutate()} />
         ) : step === 2 ? (
@@ -139,6 +160,9 @@ export function SetupScreen() {
             terminal={terminal}
             preview={preview}
             globalCustomization={globalCustomization}
+            tailscalePending={tailscale.isPending}
+            tailscaleResult={tailscale.data}
+            onConnectTailscale={() => tailscale.mutate()}
             onAway={setAway}
             onBackground={setBackground}
             onTerminal={setTerminal}
@@ -165,32 +189,77 @@ export function SetupScreen() {
   );
 }
 
-function ComputerStep({ status, loginPending, onLogin, onRefresh }: {
+function SetupErrorBanner({ error, ref }: { error: Error; ref: Ref<HTMLDivElement> }) {
+  const detail = error instanceof LocalApiError ? error.detail : undefined;
+  return (
+    <div className="setup-error" role="alert" tabIndex={-1} ref={ref}>
+      <WarningCircle aria-hidden="true" size={19} />
+      <div>
+        <strong>Leave needs your attention</strong>
+        <span>{error.message}</span>
+        {detail && <details className="setup-error-detail"><summary>What the tool reported</summary><pre>{detail}</pre></details>}
+      </div>
+    </div>
+  );
+}
+
+function ComputerStep({ status, pendingAction, tailscale, onAction, onRefresh }: {
   status: SetupStatus;
-  loginPending: boolean;
-  onLogin: () => void;
+  pendingAction?: string;
+  tailscale?: SetupTailscaleConnection;
+  onAction: (action: SetupToolAction) => void;
   onRefresh: () => void;
 }) {
   return (
     <div className="setup-step">
-      <div className="setup-step-heading"><span className="setup-step-icon"><Desktop aria-hidden="true" size={21} /></span><div><h2>Check this computer</h2><p>Devin is required. Phone access and browser preview are optional.</p></div></div>
+      <div className="setup-step-heading"><span className="setup-step-icon"><Desktop aria-hidden="true" size={21} /></span><div><h2>Check this computer</h2><p>Leave sets up what is missing for you. Devin is required; phone access and browser preview are optional.</p></div></div>
       <div className="setup-checks">
-        <ToolRow icon={PlugsConnected} tool={status.devin} action={status.devin.installed && !status.devin.ready ? <button className="button compact" type="button" disabled={loginPending} onClick={onLogin}>{loginPending ? "Waiting for Devin…" : "Connect Devin"}</button> : undefined} />
-        <ToolRow icon={DeviceMobile} tool={status.tailscale} optional />
-        <ToolRow icon={Browser} tool={status.browser} optional />
+        <ToolRow icon={PlugsConnected} tool={status.devin} pendingAction={pendingAction} onAction={onAction} />
+        <ToolRow icon={DeviceMobile} tool={status.tailscale} optional pendingAction={pendingAction} onAction={onAction} />
+        <ToolRow icon={Browser} tool={status.browser} optional pendingAction={pendingAction} onAction={onAction} />
       </div>
+      {tailscale?.loginUrl && <TailscaleLoginNotice connection={tailscale} />}
       <button className="text-button" type="button" onClick={onRefresh}>Check again</button>
     </div>
   );
 }
 
-function ToolRow({ icon: Icon, tool, optional, action }: { icon: typeof Desktop; tool: SetupTool; optional?: boolean; action?: ReactNode }) {
+function TailscaleLoginNotice({ connection }: { connection: SetupTailscaleConnection }) {
+  return (
+    <div className="setup-notice">
+      <strong>Finish signing in to Tailscale</strong>
+      <p>{connection.detail}</p>
+      {connection.loginUrl && <a className="button secondary compact" href={connection.loginUrl} target="_blank" rel="noreferrer">Open Tailscale sign-in<ArrowRight aria-hidden="true" size={15} /></a>}
+    </div>
+  );
+}
+
+function ToolRow({ icon: Icon, tool, optional, pendingAction, onAction }: {
+  icon: typeof Desktop;
+  tool: SetupTool;
+  optional?: boolean;
+  pendingAction?: string;
+  onAction: (action: SetupToolAction) => void;
+}) {
+  const action = tool.action;
+  const pending = Boolean(action && pendingAction === action.id);
   return (
     <div className="setup-tool-row">
       <span className="tool-row-icon"><Icon aria-hidden="true" size={19} /></span>
-      <div><strong>{tool.label}{optional ? <small>Optional</small> : null}</strong><p>{tool.detail}</p>{tool.path && <code>{tool.path}</code>}</div>
+      <div>
+        <strong>{tool.label}{optional ? <small>Optional</small> : null}</strong>
+        <p>{tool.detail}</p>
+        {action && <code title="Leave runs this exact command">{action.command}</code>}
+        {!action && tool.manualCommand && <code>{tool.manualCommand}</code>}
+      </div>
       <span className={`setup-state ${tool.ready ? "ready" : "needs-action"}`}>{tool.ready ? <><Check aria-hidden="true" size={14} />Ready</> : tool.installed ? "Needs sign-in" : "Not installed"}</span>
-      {action ?? (!tool.installed && tool.url ? <a className="button secondary compact" href={tool.url} target="_blank" rel="noreferrer">Install</a> : null)}
+      {action ? (
+        <button className="button compact" type="button" disabled={pending} onClick={() => onAction(action)} title={action.detail}>
+          {pending ? "Working…" : <>{action.id === "installDevin" ? <DownloadSimple aria-hidden="true" size={15} /> : null}{action.label}</>}
+        </button>
+      ) : !tool.ready && tool.url ? (
+        <a className="button secondary compact" href={tool.url} target="_blank" rel="noreferrer">Install</a>
+      ) : null}
     </div>
   );
 }
@@ -207,15 +276,29 @@ function WorkspaceStep({ value, example, pickerAvailable, pickerPending, pickerD
 function AccessStep(props: {
   status: { platform: { serviceLabel: string }; tailscale: SetupTool; browser: SetupTool };
   away: boolean; background: boolean; terminal: boolean; preview: boolean; globalCustomization: boolean;
+  tailscalePending: boolean; tailscaleResult?: SetupTailscaleConnection; onConnectTailscale: () => void;
   onAway: (value: boolean) => void; onBackground: (value: boolean) => void; onTerminal: (value: boolean) => void; onPreview: (value: boolean) => void; onGlobalCustomization: (value: boolean) => void;
 }) {
+  const phoneReady = props.status.tailscale.ready;
   return (
     <div className="setup-step">
       <div className="setup-step-heading"><span className="setup-step-icon"><Key aria-hidden="true" size={21} /></span><div><h2>Choose access</h2><p>Leave keeps sensitive capabilities off until you turn them on.</p></div></div>
       <fieldset className="setup-options"><legend>Connection</legend>
         <Option checked={props.background} onChange={props.onBackground} icon={Desktop} title="Keep Leave running" detail={`Start at sign-in using a ${props.status.platform.serviceLabel}.`} />
-        <Option checked={props.away} onChange={props.onAway} icon={DeviceMobile} title="Open from my phone" detail={props.status.tailscale.ready ? "Use your private Tailscale network. Other tailnet users are rejected." : "Sign in to Tailscale on this computer before enabling phone access."} disabled={!props.status.tailscale.ready} />
+        <Option checked={props.away} onChange={props.onAway} icon={DeviceMobile} title="Open from my phone" detail={phoneReady ? "Use your private Tailscale network. Other tailnet users are rejected." : "Tailscale is not connected on this computer yet."} disabled={!phoneReady} />
       </fieldset>
+      {!phoneReady && (
+        <div className="setup-notice">
+          <strong>Want to use Leave from your phone?</strong>
+          <p>{props.tailscaleResult?.detail ?? (props.status.tailscale.installed ? "Leave can start Tailscale's sign-in for you. Nothing is exposed to the public internet." : "Install Tailscale on this computer and your phone, then check this computer again.")}</p>
+          {props.status.tailscale.installed ? (
+            <button className="button secondary compact" type="button" disabled={props.tailscalePending} onClick={props.onConnectTailscale}>{props.tailscalePending ? "Working…" : "Connect Tailscale"}</button>
+          ) : (
+            <a className="button secondary compact" href={props.status.tailscale.url ?? "https://tailscale.com/download"} target="_blank" rel="noreferrer">Get Tailscale</a>
+          )}
+          {props.tailscaleResult?.loginUrl && <a className="button secondary compact" href={props.tailscaleResult.loginUrl} target="_blank" rel="noreferrer">Open Tailscale sign-in</a>}
+        </div>
+      )}
       <fieldset className="setup-options"><legend>Workspace capabilities</legend>
         <Option checked={props.terminal} onChange={props.onTerminal} icon={TerminalWindow} title="Terminal" detail="Run shell commands as your signed-in computer account." />
         <Option checked={props.preview} onChange={props.onPreview} icon={Browser} title="Browser preview" detail="Control an isolated Chromium profile limited to local app URLs." disabled={!props.status.browser.ready} />
@@ -234,18 +317,46 @@ function ReviewStep({ status, workspacePath, away, background, terminal, preview
   return <div className="setup-step"><div className="setup-step-heading"><span className="setup-step-icon"><Check aria-hidden="true" size={21} /></span><div><h2>Review and start</h2><p>Leave will apply these choices on {status.platform.label}.</p></div></div><dl className="setup-review"><div><dt>Workspace</dt><dd className="mono">{workspacePath}</dd></div><div><dt>Runs</dt><dd>{background ? `At sign-in through ${status.platform.serviceLabel}` : "Until this computer restarts or the host exits"}</dd></div><div><dt>Phone</dt><dd>{away ? "Private Tailscale access" : "This computer only"}</dd></div><div><dt>Extra access</dt><dd>{capabilities.length ? capabilities.join(", ") : "None"}</dd></div></dl></div>;
 }
 
-function SuccessStep({ result }: { result: { localUrl: string; awayUrl: string | null; workspacePath: string; background: boolean } }) {
+function SuccessStep({ result }: { result: { localUrl: string; awayUrl: string | null; awayOwner: string | null; workspacePath: string; background: boolean } }) {
+  return (
+    <div className="setup-success">
+      <span className="setup-success-mark"><Check aria-hidden="true" size={26} /></span>
+      <h2>Workspace connected</h2>
+      <p className="mono">{result.workspacePath}</p>
+      <a className="button setup-open-button" href={result.localUrl}>Open Leave<ArrowRight aria-hidden="true" size={16} /></a>
+      {result.awayUrl && <PhonePairing url={result.awayUrl} owner={result.awayOwner} />}
+      <small>{result.background ? "Leave will restart when you sign in to this computer." : "Keep Leave Setup open while you use this workspace."}</small>
+    </div>
+  );
+}
+
+function PhonePairing({ url, owner }: { url: string; owner: string | null }) {
   const [copied, setCopied] = useState(false);
-  async function copyAwayUrl() {
-    if (!result.awayUrl) return;
+  async function copyUrl() {
     try {
-      await navigator.clipboard.writeText(result.awayUrl);
+      await navigator.clipboard.writeText(url);
       setCopied(true);
     } catch {
       setCopied(false);
     }
   }
-  return <div className="setup-success"><span className="setup-success-mark"><Check aria-hidden="true" size={26} /></span><h2>Workspace connected</h2><p className="mono">{result.workspacePath}</p><a className="button setup-open-button" href={result.localUrl}>Open Leave<ArrowRight aria-hidden="true" size={16} /></a>{result.awayUrl && <div className="away-result"><strong>On your phone</strong><p>Open this private address after signing in to Tailscale.</p><div><code>{result.awayUrl}</code><button className="icon-button" type="button" aria-label="Copy phone address" onClick={() => void copyAwayUrl()}>{copied ? <Check aria-hidden="true" size={18} /> : <Copy aria-hidden="true" size={18} />}</button></div></div>}<small>{result.background ? "Leave will restart when you sign in to this computer." : "Keep Leave Setup open while you use this workspace."}</small></div>;
+  return (
+    <div className="away-result">
+      <strong>Add your phone</strong>
+      <ol className="phone-steps">
+        <li>Install Tailscale on your phone and sign in{owner ? <> as <span className="mono">{owner}</span></> : null}.</li>
+        <li>Point your phone camera at this code.</li>
+        <li>Tap Share, then Add to Home Screen to install Leave.</li>
+      </ol>
+      <div className="phone-pairing">
+        <QrCode value={url} title={`Scan to open Leave at ${url}`} />
+        <div>
+          <p>Only your own tailnet account can open this address. It is never published to the internet.</p>
+          <div className="away-address"><code>{url}</code><button className="icon-button" type="button" aria-label="Copy phone address" onClick={() => void copyUrl()}>{copied ? <Check aria-hidden="true" size={18} /> : <Copy aria-hidden="true" size={18} />}</button></div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function SetupUnavailable({ title, detail }: { title: string; detail: string }) {

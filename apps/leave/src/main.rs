@@ -548,14 +548,56 @@ async fn print_status(store: &EventStore, paths: &AppPaths, json: bool) -> anyho
 
 async fn doctor(store: &EventStore, paths: &AppPaths, json: bool) -> anyhow::Result<()> {
     let report = status_report(store, paths).await?;
-    print_value(&report, json)?;
+    if json {
+        print_value(&report, true)?;
+    } else {
+        print_doctor(&report);
+    }
     if !report.devin.ok {
-        bail!("Devin CLI check failed")
+        bail!("Leave cannot find the official Devin command on this computer")
     }
     if !report.devin_auth.ok {
-        bail!("Devin CLI is not authenticated")
+        bail!("Devin is installed but signed out on this computer")
     }
     Ok(())
+}
+
+/// Print the checks as a short list with the next step for anything failing.
+fn print_doctor(report: &StatusReport) {
+    println!("Leave {}", report.version);
+    println!();
+    print_check(
+        "Devin command",
+        &report.devin,
+        "Open Leave Setup and choose Install Devin, or follow https://docs.devin.ai/cli",
+    );
+    print_check(
+        "Devin sign-in",
+        &report.devin_auth,
+        "Run `devin auth login`, or choose Sign in to Devin in Leave Setup",
+    );
+    println!();
+    println!("Workspaces registered: {}", report.workspace_count);
+    println!("Data folder: {}", report.data_directory.display());
+    if !report.remote_crypto_gate.allows_remote_release() {
+        println!(
+            "Public internet relay: off. Private phone access uses your own Tailscale network."
+        );
+    }
+}
+
+fn print_check(label: &str, check: &Check, next_step: &str) {
+    let state = if check.ok { "ok" } else { "needs attention" };
+    println!("[{state}] {label}");
+    if !check.detail.trim().is_empty() {
+        println!(
+            "        {}",
+            check.detail.trim().replace('\n', "\n        ")
+        );
+    }
+    if !check.ok {
+        println!("        Next: {next_step}");
+    }
 }
 
 async fn status_report(store: &EventStore, paths: &AppPaths) -> anyhow::Result<StatusReport> {
@@ -715,8 +757,35 @@ fn discover_devin_binary() -> Option<PathBuf> {
         }
     }
 
+    // The official installer writes into the user's home before the shell that
+    // started Leave has picked up the new PATH entry.
+    if let Some(home) = dirs::home_dir() {
+        for relative in DEVIN_HOME_INSTALL_PATHS {
+            let candidate = home.join(relative);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+
     None
 }
+
+/// Locations the official installer uses inside the user's home directory.
+#[cfg(windows)]
+const DEVIN_HOME_INSTALL_PATHS: &[&str] = &[
+    ".devin\\bin\\devin.exe",
+    ".local\\bin\\devin.exe",
+    "AppData\\Local\\devin\\bin\\devin.exe",
+];
+
+/// Locations the official installer uses inside the user's home directory.
+#[cfg(not(windows))]
+const DEVIN_HOME_INSTALL_PATHS: &[&str] = &[
+    ".devin/bin/devin",
+    ".local/bin/devin",
+    ".local/share/devin/bin/devin",
+];
 
 fn discover_chrome_binary() -> Option<PathBuf> {
     if let Some(override_path) = std::env::var_os("LEAVE_CHROME_BIN") {

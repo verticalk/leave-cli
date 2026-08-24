@@ -6,9 +6,9 @@ test("guides a nontechnical user from computer checks to a running workspace", a
   const status = {
     version: "0.1.0-alpha.1",
     platform: { id: "linux", label: "Linux", serviceLabel: "systemd user service" },
-    devin: { installed: true, ready: true, label: "Devin", detail: "Logged in", path: "/opt/devin/bin/devin", url: null },
-    tailscale: { installed: true, ready: true, label: "Phone access", detail: "Tailscale is connected.", path: null, url: "https://leave-host.example.ts.net" },
-    browser: { installed: true, ready: true, label: "Browser preview", detail: "Chromium is ready.", path: "/opt/chromium", url: null },
+    devin: { installed: true, ready: true, label: "Devin", detail: "Signed in to Devin as person@example.com.", path: "/opt/devin/bin/devin", url: null, account: "person@example.com", action: null, manualCommand: null },
+    tailscale: { installed: true, ready: true, label: "Phone access", detail: "Tailscale is connected.", path: null, url: "https://leave-host.example.ts.net", account: "owner@example.com", action: null, manualCommand: null },
+    browser: { installed: true, ready: true, label: "Browser preview", detail: "Chromium is ready.", path: "/opt/chromium", url: null, account: null, action: null, manualCommand: null },
     folderPickerAvailable: true,
     workspaceExample: "/home/you/Projects/my-app",
     hostPort: 8788
@@ -25,6 +25,7 @@ test("guides a nontechnical user from computer checks to a running workspace", a
       body: JSON.stringify({
         localUrl: "http://127.0.0.1:8788",
         awayUrl: "https://leave-host.example.ts.net",
+        awayOwner: "owner@example.com",
         workspacePath: "/home/you/Projects/my-app",
         background: true
       })
@@ -46,6 +47,8 @@ test("guides a nontechnical user from computer checks to a running workspace", a
   await page.getByRole("button", { name: "Start Leave" }).click();
   await expect(page.getByRole("heading", { name: "Workspace connected" })).toBeVisible();
   await expect(page.getByText("https://leave-host.example.ts.net")).toBeVisible();
+  await expect(page.getByRole("img", { name: /Scan to open Leave/ })).toBeVisible();
+  await expect(page.getByText("owner@example.com")).toBeVisible();
   expect(launchRequests).toEqual([{
     workspacePath: "/home/you/Projects/my-app",
     port: 8788,
@@ -56,6 +59,90 @@ test("guides a nontechnical user from computer checks to a running workspace", a
     globalCustomization: false
   }]);
   expect(await page.evaluate(() => document.body.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test("offers to install and sign in to what this computer is missing", async ({ page }) => {
+  let devinInstalled = false;
+  const toolRow = (overrides: Record<string, unknown>) => ({
+    installed: false,
+    ready: false,
+    label: "Devin",
+    detail: "Leave needs Cognition's official Devin CLI on this computer.",
+    path: null,
+    url: "https://docs.devin.ai/cli",
+    account: null,
+    action: null,
+    manualCommand: null,
+    ...overrides
+  });
+  const status = () => ({
+    version: "0.1.0-alpha.1",
+    platform: { id: "linux", label: "Linux", serviceLabel: "systemd user service" },
+    devin: devinInstalled
+      ? toolRow({
+          installed: true,
+          ready: true,
+          detail: "Signed in to Devin as person@example.com.",
+          path: "/home/you/.devin/bin/devin",
+          url: null,
+          account: "person@example.com"
+        })
+      : toolRow({
+          action: {
+            id: "installDevin",
+            label: "Install Devin",
+            command: "curl -fsSL https://cli.devin.ai/install.sh | bash",
+            detail: "Runs Cognition's published installer for your user account only."
+          },
+          manualCommand: "curl -fsSL https://cli.devin.ai/install.sh | bash"
+        }),
+    tailscale: toolRow({
+      label: "Phone access",
+      installed: true,
+      detail: "Tailscale is installed but signed out.",
+      url: null,
+      action: {
+        id: "connectTailscale",
+        label: "Connect Tailscale",
+        command: "tailscale up",
+        detail: "Starts Tailscale's own sign-in."
+      },
+      manualCommand: "tailscale up"
+    }),
+    browser: toolRow({ label: "Browser preview", installed: true, ready: true, detail: "Chromium is ready.", url: null }),
+    folderPickerAvailable: false,
+    workspaceExample: "/home/you/Projects/my-app",
+    hostPort: 8788
+  });
+
+  await page.route("**/api/v1/setup/status", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(status()) });
+  });
+  await page.route("**/api/v1/setup/install/devin", async (route) => {
+    devinInstalled = true;
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(status()) });
+  });
+  await page.route("**/api/v1/setup/tailscale/connect", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        connected: false,
+        loginUrl: "https://login.tailscale.com/a/1234abcd",
+        detail: "Open this Tailscale sign-in link, then choose Check again."
+      })
+    });
+  });
+
+  await page.goto("/setup?token=fixture-token");
+  await expect(page.getByText("curl -fsSL https://cli.devin.ai/install.sh | bash")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue" })).toBeDisabled();
+
+  await page.getByRole("button", { name: "Connect Tailscale" }).click();
+  await expect(page.getByRole("link", { name: /Open Tailscale sign-in/ })).toHaveAttribute("href", "https://login.tailscale.com/a/1234abcd");
+
+  await page.getByRole("button", { name: "Install Devin" }).click();
+  await expect(page.getByText("Signed in to Devin as person@example.com.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled();
 });
 
 test("creates a real ACP session and completes a permission round trip", async ({ page, request }) => {

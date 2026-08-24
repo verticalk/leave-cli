@@ -61,85 +61,88 @@ proto                  public protocol schema
 docs                   architecture, threat model, and compatibility
 ```
 
-## Run the local alpha
+## Install and set up
 
-Requirements:
+Leave installs into your own user account and never needs an administrator.
 
-- Rust 1.98 with rustfmt and Clippy
-- Node 22.12+
-- pnpm 10.15
-- The official, locally authenticated `devin` CLI
+### The short version
 
-Install Devin using Cognition's [official CLI quickstart](https://docs.devin.ai/cli).
-For macOS, Linux, or WSL, the documented installer is:
+Open a terminal, then run:
+
+```bash
+git clone https://github.com/verticalk/leave-cli.git
+cd leave-cli
+./infra/bootstrap.sh
+```
+
+On Windows, use PowerShell:
+
+```powershell
+git clone https://github.com/verticalk/leave-cli.git
+cd leave-cli
+.\infra\bootstrap.ps1
+```
+
+The bootstrap script checks this computer, installs anything missing for your
+user account only (the official Rust toolchain and Node.js), builds Leave,
+adds **Leave Setup** to your applications menu, and opens it. It asks before
+each download; pass `--yes` to skip the questions.
+
+After that, the terminal is done. Leave Setup walks through the rest:
+
+1. **Devin** — if the official CLI is missing, Leave runs Cognition's published
+   installer for you; if it is signed out, Leave opens Devin's own sign-in.
+   Leave never reads or copies Devin credentials.
+2. **Workspace** — pick the one folder Leave may access, with your desktop's
+   native folder picker.
+3. **Access** — private phone access and optional capabilities, each off until
+   you turn it on. Leave can start the Tailscale sign-in from this screen.
+4. **Start** — Leave runs, and shows a QR code your phone camera can open.
+
+Public signed installers are not published until the legal and cryptography
+release gates pass, so Leave builds from this checkout on your own computer.
+
+### Requirements the script handles for you
+
+- Rust 1.98 (installed through the official rustup installer)
+- Node 22.12 and pnpm 10.15 (installed through the official Node.js release)
+
+You only need to install Devin yourself if you would rather follow Cognition's
+[official CLI quickstart](https://docs.devin.ai/cli) than let Leave do it:
 
 ```bash
 curl -fsSL https://cli.devin.ai/install.sh | bash
-```
-
-Restart the terminal, then authenticate and confirm the account:
-
-```bash
 devin auth login
-devin auth status
-devin --version
 ```
-
-Windows users should follow the PowerShell installer in the official quickstart.
-Leave does not read or copy Devin credentials; `devin acp` reads the credentials
-stored by Devin itself.
 
 If Devin Desktop is installed, its command palette may offer **Install Devin
-CLI**, which adds `devin` to `PATH`. Leave also checks the standard Devin
-Desktop bundle locations on Linux, macOS, and Windows. Set `LEAVE_DEVIN_BIN`
-to an explicit official CLI path for a nonstandard installation.
+CLI**. Leave also checks the standard Devin Desktop bundle locations and the
+paths the official installer uses. Set `LEAVE_DEVIN_BIN` to an explicit
+official CLI path for a nonstandard installation.
+
+### Using Leave from your phone
+
+Phone access runs over your own private Tailscale network. Leave stays bound to
+`127.0.0.1` and accepts only the tailnet identity of the computer's owner.
+
+1. Install Tailscale on your phone and sign in with the same account.
+2. In Leave Setup, turn on **Open from my phone**. If Tailscale is not
+   connected yet, choose **Connect Tailscale** and Leave opens its sign-in.
+3. Scan the QR code Leave shows when it finishes, then use Add to Home Screen.
+
+Do not use Tailscale Funnel or expose port 8788 through a router.
+
+### Doing it from the command line instead
 
 ```bash
 corepack enable
 pnpm install --frozen-lockfile
 pnpm build
 cargo build -p leave
-```
-
-The easiest setup requires no terminal after installation. Open **Leave Setup**
-from the Linux applications menu, macOS Applications folder, or Windows Start
-menu. Leave detects the operating system and guides you through:
-
-1. Connecting the supported Devin CLI through Devin's official login.
-2. Choosing the only workspace folder Leave may access.
-3. Enabling private phone access and optional capabilities.
-4. Starting Leave now or installing the native per-user background service.
-
-The setup page is bound to localhost and protected by a fresh private session.
-It never reads or copies Devin credentials. The command-line fallback is:
-
-```bash
 ./target/debug/leave setup
 ```
 
-Advanced users can still connect directly:
-
-```bash
-./target/debug/leave connect /absolute/path/to/repository \
-  --grant-terminal --grant-preview
-```
-
-Add `--expose-global-customization` only when this workspace may read or change
-user-global skills, plugins, and MCP configuration.
-
-For phone access, install and sign in to Tailscale on the computer and phone,
-then enable **Open from my phone** in Leave Setup. The direct CLI equivalent is:
-
-```bash
-./target/debug/leave connect /absolute/path/to/repository --away
-```
-
-Leave configures persistent Tailscale Serve HTTPS while keeping its host on
-`127.0.0.1`. It rejects tailnet requests unless Tailscale's identity header
-matches the computer owner's login. Do not use Tailscale Funnel or expose port
-8788 through a router.
-
-To keep Leave running after the terminal closes and restart it at login:
+Advanced users can skip the wizard:
 
 ```bash
 ./target/debug/leave connect /absolute/path/to/repository \
@@ -148,13 +151,14 @@ To keep Leave running after the terminal closes and restart it at login:
 ./target/debug/leave away status
 ```
 
-This installs a macOS LaunchAgent, Linux systemd user unit, or Windows per-user
-Scheduled Task. Remove it with `leave service uninstall`; remove the tailnet
-mapping with `leave away disable`.
+Add `--expose-global-customization` only when this workspace may read or change
+user-global skills, plugins, and MCP configuration. `--background` installs a
+macOS LaunchAgent, Linux systemd user unit, or Windows per-user Scheduled Task;
+remove it with `leave service uninstall` and drop the tailnet mapping with
+`leave away disable`.
 
-Native Windows source installs use `infra/install-local.ps1`. The script adds
-Leave's per-user `bin` directory to the user PATH. Use WSL2 when you need the
-Linux sandbox boundary recommended for autonomous Devin work.
+Native Windows source installs use `infra/install-local.ps1`. Use WSL2 when you
+need the Linux sandbox boundary recommended for autonomous Devin work.
 
 See [Getting started](docs/getting-started.md) for the phone checklist and
 capability details.

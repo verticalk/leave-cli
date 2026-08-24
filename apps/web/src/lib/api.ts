@@ -13,6 +13,7 @@ import type {
   SetupLaunchRequest,
   SetupLaunchResult,
   SetupStatus,
+  SetupTailscaleConnection,
   TerminalView,
   WorkspaceRecord
 } from "../types";
@@ -20,7 +21,9 @@ import type {
 export class LocalApiError extends Error {
   constructor(
     message: string,
-    readonly status: number
+    readonly status: number,
+    /** Raw tool output, shown only when someone opens the details. */
+    readonly detail?: string
   ) {
     super(message);
     this.name = "LocalApiError";
@@ -40,6 +43,17 @@ export function fetchSetupStatus(token: string, signal?: AbortSignal) {
 
 export function loginSetupDevin(token: string) {
   return setupRequest<SetupStatus>(token, "/auth/login", { method: "POST", body: "{}" });
+}
+
+export function installSetupDevin(token: string) {
+  return setupRequest<SetupStatus>(token, "/install/devin", { method: "POST", body: "{}" });
+}
+
+export function connectSetupTailscale(token: string) {
+  return setupRequest<SetupTailscaleConnection>(token, "/tailscale/connect", {
+    method: "POST",
+    body: "{}"
+  });
 }
 
 export function selectSetupWorkspace(token: string) {
@@ -73,7 +87,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new LocalApiError(
       body.error?.message ?? `Leave host returned ${response.status}`,
-      response.status
+      response.status,
+      body.error?.detail
     );
   }
   if (response.status === 204) return undefined as T;

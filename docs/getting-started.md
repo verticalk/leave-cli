@@ -2,46 +2,65 @@
 
 ## 1. Install Leave
 
-For a source checkout on macOS, Linux, or WSL2:
+One command from a fresh checkout on macOS, Linux, or WSL2:
 
 ```bash
-./infra/install-local.sh
+./infra/bootstrap.sh
 ```
 
 On native Windows, use PowerShell:
 
 ```powershell
-.\infra\install-local.ps1
+.\infra\bootstrap.ps1
 ```
 
-The scripts build the PWA and Rust host, then place them under
-`$LEAVE_INSTALL_PREFIX`. The Unix default is `$HOME/.local`; the Windows
-default is `%LOCALAPPDATA%\Leave`. Candidate archives produced by CI have the
-same `bin/` and `share/leave/web/` layout.
+The bootstrap script installs anything missing into your user account only —
+the official Rust toolchain and the pinned Node.js release — then builds the
+PWA and Rust host, installs them under `$LEAVE_INSTALL_PREFIX`, adds the
+**Leave Setup** launcher, and opens it. The Unix default prefix is
+`$HOME/.local`; the Windows default is `%LOCALAPPDATA%\Leave`. It asks before
+each download. Use `--yes` for an unattended install and `--no-setup` to skip
+opening the wizard.
 
-Public signed installers are not published until the legal and cryptography
-release gates pass. Local candidate packages do not bypass those gates.
-
-## 2. Open Leave Setup
-
-Open **Leave Setup** from the Linux applications menu, macOS Applications
-folder, or Windows Start menu. The private local wizard checks this computer,
-opens Devin's official login when needed, lets you choose a workspace with the
-native folder picker, and shows optional access before anything starts.
-
-If the desktop shortcut is unavailable, use:
+If Rust and Node are already set up the way you want them, run the build steps
+directly instead:
 
 ```bash
-leave setup
+./infra/install-local.sh
 ```
 
-Leave searches `LEAVE_DEVIN_BIN`, `PATH`, and supported Devin Desktop bundle
-locations. If the official CLI is logged out, the **Connect Devin** button runs
-the documented `devin auth login` flow and checks its result. The selected
-folder is canonicalized before Leave registers it and starts `devin acp`.
+Candidate archives produced by CI have the same `bin/` and `share/leave/web/`
+layout. Public signed installers are not published until the legal and
+cryptography release gates pass. Local candidate packages do not bypass those
+gates.
 
-Leave does not copy Desktop tokens, read private Desktop databases, or parse
-the interactive Devin TUI.
+## 2. Finish setup in the browser
+
+Leave Setup opens on its own after the bootstrap. Later, open **Leave Setup**
+from the Linux applications menu, macOS Applications folder, or Windows Start
+menu, or run `leave setup`.
+
+The private local wizard checks this computer and offers to fix whatever is
+missing:
+
+- **Devin is not installed** — Leave runs Cognition's published installer
+  (`curl -fsSL https://cli.devin.ai/install.sh | bash`) for your user account.
+  The wizard shows that exact command before it runs. On Windows, follow
+  Cognition's PowerShell quickstart and choose **Check again**.
+- **Devin is signed out** — **Sign in to Devin** runs the documented
+  `devin auth login` flow and checks the result. Leave does not copy Desktop
+  tokens, read private Desktop databases, or parse the interactive Devin TUI.
+- **Tailscale is signed out** — **Connect Tailscale** runs `tailscale up`,
+  opens the sign-in link Tailscale prints, and waits for you to finish.
+- **Something failed** — the wizard shows one sentence about what to do next,
+  with the tool's raw output behind **What the tool reported**.
+
+Leave searches `LEAVE_DEVIN_BIN`, `PATH`, supported Devin Desktop bundle
+locations, and the paths the official installer writes to, so a fresh install
+is found without opening a new terminal.
+
+The selected folder is canonicalized before Leave registers it and starts
+`devin acp`.
 
 ## 3. Open it from a phone
 
@@ -49,8 +68,11 @@ the interactive Devin TUI.
 2. Sign both devices into the same account or an ACL policy that lets the phone
    reach the computer.
 3. In Leave Setup, enable **Open from my phone** and **Keep Leave running**.
-4. Start Leave, then open the displayed `https://...ts.net` URL on the phone
-   and install the PWA.
+4. Start Leave. The final screen shows a QR code for the private
+   `https://...ts.net` address, the tailnet account allowed to open it, and the
+   three phone steps.
+5. Point the phone camera at the code, then use Add to Home Screen to install
+   the PWA.
 
 Leave remains bound to `127.0.0.1`. Tailscale terminates HTTPS and adds the
 signed-in identity headers. Leave permits the exact host-owner login and denies

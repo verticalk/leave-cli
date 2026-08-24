@@ -121,7 +121,15 @@ export interface ApiErrorBody {
   error?: {
     status?: number;
     message?: string;
+    detail?: string;
   };
+}
+
+export interface SetupToolAction {
+  id: "installDevin" | "connectDevin" | "connectTailscale";
+  label: string;
+  command: string;
+  detail: string;
 }
 
 export interface SetupTool {
@@ -131,6 +139,15 @@ export interface SetupTool {
   detail: string;
   path: string | null;
   url: string | null;
+  account: string | null;
+  action: SetupToolAction | null;
+  manualCommand: string | null;
+}
+
+export interface SetupTailscaleConnection {
+  connected: boolean;
+  loginUrl: string | null;
+  detail: string;
 }
 
 export interface SetupStatus {
@@ -161,6 +178,7 @@ export interface SetupLaunchRequest {
 export interface SetupLaunchResult {
   localUrl: string;
   awayUrl: string | null;
+  awayOwner: string | null;
   workspacePath: string;
   background: boolean;
 }
