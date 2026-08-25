@@ -406,11 +406,15 @@ async fn await_devin_login_link(state: &SetupState) -> Result<Json<DevinLoginRes
         let exited = {
             let mut slot = state.devin_login.lock().await;
             match slot.as_mut().map(tokio::process::Child::try_wait) {
-                Some(Ok(None)) | None => None,
-                Some(result) => {
+                Some(Ok(Some(exit))) => {
                     *slot = None;
-                    Some(result)
+                    Some(Ok(exit))
                 }
+                Some(Err(error)) => {
+                    *slot = None;
+                    Some(Err(error))
+                }
+                Some(Ok(None)) | None => None,
             }
         };
         if let Some(result) = exited {
