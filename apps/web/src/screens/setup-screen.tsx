@@ -28,6 +28,7 @@ import {
 } from "../lib/api";
 import { QrCode } from "../components/qr-code";
 import type {
+  SetupDevinLogin,
   SetupLaunchRequest,
   SetupStatus,
   SetupTailscaleConnection,
@@ -63,7 +64,10 @@ export function SetupScreen() {
     refetchInterval: 5_000
   });
   const applyStatus = (status: SetupStatus) => queryClient.setQueryData(["setup-status", token], status);
-  const login = useMutation({ mutationFn: () => loginSetupDevin(token), onSuccess: applyStatus });
+  const login = useMutation({
+    mutationFn: () => loginSetupDevin(token),
+    onSuccess: () => void setup.refetch()
+  });
   const install = useMutation({ mutationFn: () => installSetupDevin(token), onSuccess: applyStatus });
   const tailscale = useMutation({
     mutationFn: () => connectSetupTailscale(token),
@@ -149,7 +153,7 @@ export function SetupScreen() {
         {launch.data ? (
           <SuccessStep result={launch.data} />
         ) : step === 0 ? (
-          <ComputerStep status={status} pendingAction={pendingAction} tailscale={tailscale.data} onAction={runAction} onRefresh={() => void setup.refetch()} />
+          <ComputerStep status={status} pendingAction={pendingAction} devinLogin={login.data} tailscale={tailscale.data} onAction={runAction} onRefresh={() => void setup.refetch()} />
         ) : step === 1 ? (
           <WorkspaceStep value={workspacePath} example={status.workspaceExample} pickerAvailable={status.folderPickerAvailable} pickerPending={picker.isPending} pickerDetail={picker.data?.detail} onChange={setWorkspacePath} onPick={() => picker.mutate()} />
         ) : step === 2 ? (
@@ -203,23 +207,41 @@ function SetupErrorBanner({ error, ref }: { error: Error; ref: Ref<HTMLDivElemen
   );
 }
 
-function ComputerStep({ status, pendingAction, tailscale, onAction, onRefresh }: {
+function ComputerStep({ status, pendingAction, devinLogin, tailscale, onAction, onRefresh }: {
   status: SetupStatus;
   pendingAction?: string;
+  devinLogin?: SetupDevinLogin;
   tailscale?: SetupTailscaleConnection;
   onAction: (action: SetupToolAction) => void;
   onRefresh: () => void;
 }) {
+  const devin = status.devin;
+  const showDevinNotice = !devin.ready && (devin.loginPending || Boolean(devinLogin) || Boolean(devin.loginUrl) || Boolean(devin.loginOutput));
   return (
     <div className="setup-step">
       <div className="setup-step-heading"><span className="setup-step-icon"><Desktop aria-hidden="true" size={21} /></span><div><h2>Check this computer</h2><p>Leave sets up what is missing for you. Devin is required; phone access and browser preview are optional.</p></div></div>
       <div className="setup-checks">
-        <ToolRow icon={PlugsConnected} tool={status.devin} pendingAction={pendingAction} onAction={onAction} />
+        <ToolRow icon={PlugsConnected} tool={devin} pendingAction={pendingAction} onAction={onAction} />
         <ToolRow icon={DeviceMobile} tool={status.tailscale} optional pendingAction={pendingAction} onAction={onAction} />
         <ToolRow icon={Browser} tool={status.browser} optional pendingAction={pendingAction} onAction={onAction} />
       </div>
+      {showDevinNotice && <DevinLoginNotice tool={devin} result={devinLogin} />}
       {tailscale?.loginUrl && <TailscaleLoginNotice connection={tailscale} />}
       <button className="text-button" type="button" onClick={onRefresh}>Check again</button>
+    </div>
+  );
+}
+
+function DevinLoginNotice({ tool, result }: { tool: SetupTool; result?: SetupDevinLogin }) {
+  const detail = result?.detail ?? tool.detail;
+  const url = result?.loginUrl ?? tool.loginUrl;
+  return (
+    <div className="setup-notice">
+      <strong>Finish signing in to Devin</strong>
+      <p>{detail}</p>
+      {url && <a className="button secondary compact" href={url} target="_blank" rel="noreferrer">Open Devin sign-in<ArrowRight aria-hidden="true" size={15} /></a>}
+      {tool.path && <p>Leave checked the Devin command at <code>{tool.path}</code>. If you signed in somewhere else, run <code>{tool.manualCommand ?? "devin auth login"}</code> with that exact command.</p>}
+      {tool.loginOutput && <details className="setup-error-detail"><summary>What Devin reported</summary><pre>{tool.loginOutput}</pre></details>}
     </div>
   );
 }
