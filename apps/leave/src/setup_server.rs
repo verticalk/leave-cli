@@ -1,4 +1,5 @@
 //! Loopback-only first-run setup for people who do not use a terminal.
+#![allow(clippy::pedantic)] // PROBE-1: remove after bisect
 
 use anyhow::{Context, bail};
 use axum::{
