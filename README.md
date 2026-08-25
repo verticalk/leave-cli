@@ -91,14 +91,14 @@ each download; pass `--yes` to skip the questions.
 
 After that, the terminal is done. Leave Setup walks through the rest:
 
-1. **Devin** — if the official CLI is missing, Leave runs Cognition's published
+1. **Devin**: if the official CLI is missing, Leave runs Cognition's published
    installer for you; if it is signed out, Leave opens Devin's own sign-in.
    Leave never reads or copies Devin credentials.
-2. **Workspace** — pick the one folder Leave may access, with your desktop's
+2. **Workspace**: pick the one folder Leave may access, with your desktop's
    native folder picker.
-3. **Access** — private phone access and optional capabilities, each off until
+3. **Access**: private phone access and optional capabilities, each off until
    you turn it on. Leave can start the Tailscale sign-in from this screen.
-4. **Start** — Leave runs, and shows a QR code your phone camera can open.
+4. **Start**: Leave runs and shows a QR code your phone camera can open.
 
 Public signed installers are not published until the cryptography release
 gate passes, so Leave builds from this checkout on your own computer.
