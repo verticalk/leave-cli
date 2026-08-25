@@ -216,6 +216,7 @@ function ComputerStep({ status, pendingAction, devinLogin, tailscale, onAction, 
   onRefresh: () => void;
 }) {
   const devin = status.devin;
+  const [phoneGuideOpen, setPhoneGuideOpen] = useState(false);
   const showDevinNotice = !devin.ready && (devin.loginPending || Boolean(devinLogin) || Boolean(devin.loginUrl) || Boolean(devin.loginOutput));
   return (
     <div className="setup-step">
@@ -225,6 +226,17 @@ function ComputerStep({ status, pendingAction, devinLogin, tailscale, onAction, 
         <ToolRow icon={DeviceMobile} tool={status.tailscale} optional pendingAction={pendingAction} onAction={onAction} />
         <ToolRow icon={Browser} tool={status.browser} optional pendingAction={pendingAction} onAction={onAction} />
       </div>
+      <div className="setup-phone-how">
+        <span className="phone-how-summary"><DeviceMobile aria-hidden="true" size={17} /><p>Leave can also live on your phone — privately, over your Tailscale network. Never the public internet.</p></span>
+        <button className="text-button compact" type="button" aria-expanded={phoneGuideOpen} onClick={() => setPhoneGuideOpen((open) => !open)}>How?</button>
+      </div>
+      {phoneGuideOpen && (
+        <div className="away-result phone-how-guide">
+          <strong>How phone access works</strong>
+          <PhoneSteps paired={false} />
+          <p>Tick <strong>Open from my phone</strong> in the Access step and the finish screen shows your phone's QR code. Skipped it there? Run <code>leave connect . --away</code> in your workspace later.</p>
+        </div>
+      )}
       {showDevinNotice && <DevinLoginNotice tool={devin} result={devinLogin} />}
       {tailscale?.loginUrl && <TailscaleLoginNotice connection={tailscale} />}
       <button className="text-button" type="button" onClick={onRefresh}>Check again</button>
@@ -371,24 +383,7 @@ function PhonePairing({ url, owner }: { url: string; owner: string | null }) {
   return (
     <div className="away-result">
       <strong>Use Leave on your phone</strong>
-      <ol className="phone-steps">
-        <li>
-          <strong>Install Tailscale on your phone</strong>
-          <small>Get it from the App Store or Google Play, open it, and sign in{owner ? <> with the same account as this computer (<span className="mono">{owner}</span>)</> : " with the same account as this computer"}. Tailscale gives your phone a private, encrypted route to this machine.</small>
-        </li>
-        <li>
-          <strong>Open Leave on the phone</strong>
-          <small>Point the phone's camera at the code below and tap the link that appears. No QR reader? Copy the address next to the code and open it in your phone's browser instead.</small>
-        </li>
-        <li>
-          <strong>Install it like an app</strong>
-          <small>iPhone or iPad: in Safari, tap the Share button (square with an arrow), then <em>Add to Home Screen</em>. Android: in Chrome, tap the three-dot menu, then <em>Add to Home screen</em> or <em>Install app</em>.</small>
-        </li>
-        <li>
-          <strong>You're set</strong>
-          <small>Leave now opens from your home screen like a native app. Chat with Devin, watch it work, and approve its operations anywhere your phone can reach Tailscale. The app shell is cached, so it opens instantly even on a weak connection.</small>
-        </li>
-      </ol>
+      <PhoneSteps owner={owner} paired />
       <div className="phone-pairing">
         <QrCode value={url} title={`Scan to open Leave at ${url}`} />
         <div>
@@ -397,6 +392,33 @@ function PhonePairing({ url, owner }: { url: string; owner: string | null }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function PhoneSteps({ owner, paired }: { owner?: string | null; paired: boolean }) {
+  return (
+    <ol className="phone-steps">
+      <li>
+        <strong>Install Tailscale on your phone</strong>
+        <small>Get it from the App Store or Google Play, open it, and sign in{owner ? <> with the same account as this computer (<span className="mono">{owner}</span>)</> : " with the same account as this computer"}. Tailscale gives your phone a private, encrypted route to this machine.</small>
+      </li>
+      <li>
+        <strong>Open Leave on the phone</strong>
+        {paired ? (
+          <small>Point the phone's camera at the code below and tap the link that appears. No QR reader? Copy the address next to the code and open it in your phone's browser instead.</small>
+        ) : (
+          <small>Once setup finishes with phone access enabled, the finish screen shows a QR code for your private address. Point the phone's camera at it and tap the link, or copy the address into the phone's browser.</small>
+        )}
+      </li>
+      <li>
+        <strong>Install it like an app</strong>
+        <small>iPhone or iPad: in Safari, tap the Share button (square with an arrow), then <em>Add to Home Screen</em>. Android: in Chrome, tap the three-dot menu, then <em>Add to Home screen</em> or <em>Install app</em>.</small>
+      </li>
+      <li>
+        <strong>You're set</strong>
+        <small>Leave opens from your home screen like a native app. Chat with Devin, watch it work, and approve its operations anywhere your phone can reach Tailscale. The app shell is cached, so it opens instantly even on a weak connection.</small>
+      </li>
+    </ol>
   );
 }
 

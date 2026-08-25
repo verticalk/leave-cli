@@ -599,6 +599,12 @@ button:disabled { cursor: not-allowed; opacity: 0.46; }
 .phone-steps li { display: grid; gap: 3px; }
 .phone-steps li strong { color: var(--text); font-size: 11px; }
 .phone-steps li small { color: var(--muted); }
+.setup-phone-how { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--radius-md); background: var(--surface-soft); }
+.phone-how-summary { display: flex; align-items: center; gap: 9px; }
+.phone-how-summary svg { flex: none; color: var(--accent); }
+.phone-how-summary p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.setup-phone-how .text-button.compact { flex: none; min-height: 32px; margin: 0; font-size: 11px; }
+.phone-how-guide { margin-top: 10px; }
 .setup-phone-later { display: flex; gap: 9px; align-items: flex-start; width: min(100%, 560px); margin-top: 20px; padding: 12px 14px; border: 1px dashed var(--border); border-radius: var(--radius-md); background: var(--surface-soft); text-align: left; }
 .setup-phone-later svg { flex: none; margin-top: 1px; color: var(--accent); }
 .setup-phone-later p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
