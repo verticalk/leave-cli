@@ -148,14 +148,31 @@ async fn launch_browser(
         .arg("about:blank")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        // Chromium explains its own refusals here. Discarding it left the
+        // person with "DevTools did not become ready" and nothing to act on.
+        .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .context("could not start Chromium")?;
 
-    let endpoint = wait_for_page(debugging_port).await.inspect_err(|_error| {
-        let _ = child.start_kill();
-    })?;
+    let complaint = child.stderr.take().map(collect_complaint);
+
+    let endpoint = match wait_for_page(debugging_port).await {
+        Ok(endpoint) => endpoint,
+        Err(error) => {
+            let _ = child.start_kill();
+            let detail = match complaint {
+                Some(handle) => handle.await.unwrap_or_default(),
+                None => String::new(),
+            };
+            let detail = detail.trim().to_owned();
+            return Err(if detail.is_empty() {
+                error
+            } else {
+                anyhow::anyhow!("{error}. Chromium said: {detail}")
+            });
+        }
+    };
     let (mut socket, _) = tokio_tungstenite::connect_async(&endpoint)
         .await
         .context("could not connect to Chromium DevTools")?;
@@ -273,6 +290,31 @@ fn control_messages(control: PreviewControl, next_id: &mut u64) -> Vec<Value> {
             vec![json!({"id": *next_id, "method": "Input.insertText", "params": {"text": text}})]
         }
     }
+}
+
+/// Read what Chromium wrote to stderr, keeping only the first complaint.
+///
+/// Chromium is chatty, and its actual reason for refusing is on the first
+/// error line, so a bounded read is enough and cannot fill memory.
+fn collect_complaint(stderr: tokio::process::ChildStderr) -> tokio::task::JoinHandle<String> {
+    tokio::spawn(async move {
+        use tokio::io::AsyncBufReadExt as _;
+        let mut lines = tokio::io::BufReader::new(stderr).lines();
+        let mut collected = String::new();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if !line.contains("ERROR") && !line.contains("FATAL") {
+                continue;
+            }
+            // Chromium prefixes its own file and line; the message is what
+            // helps, so keep the tail after the last colon-space.
+            let message = line
+                .rsplit_once("] ")
+                .map_or(line.as_str(), |(_, rest)| rest);
+            collected.push_str(message.trim());
+            break;
+        }
+        collected
+    })
 }
 
 async fn wait_for_page(port: u16) -> anyhow::Result<String> {

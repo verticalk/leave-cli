@@ -133,10 +133,16 @@ pub fn action_for(method: &str, path: &str) -> Action {
         return Action::PersistentBrowserProfile;
     }
     if route.starts_with("/api/v1/local/customization") {
-        return if route.contains("scope=global") || path.contains("scope=global") {
-            Action::GlobalCustomization
-        } else {
-            Action::ProjectCustomization
+        // Devin's plugin and MCP inventories aggregate user-global
+        // configuration, which is why the host hides them without the global
+        // grant. Classify by category: the local API takes no scope parameter,
+        // so keying off one silently classified every remote request as
+        // project scope.
+        return match query_value(path, "category").as_deref() {
+            Some("rules" | "skills") => Action::ProjectCustomization,
+            // An absent or unrecognised category is treated as global, so a
+            // caller cannot downgrade the check by omitting it.
+            _ => Action::GlobalCustomization,
         };
     }
 
@@ -164,6 +170,15 @@ pub fn action_for(method: &str, path: &str) -> Action {
         // maintainer, rather than as something any viewer may do.
         _ => Action::EditFiles,
     }
+}
+
+/// Read one query parameter out of a request path.
+fn query_value(path: &str, key: &str) -> Option<String> {
+    let query = path.split_once('?')?.1;
+    query.split('&').find_map(|pair| {
+        let (name, value) = pair.split_once('=')?;
+        (name == key).then(|| value.to_owned())
+    })
 }
 
 /// Encode a value for the encrypted channel.
@@ -374,13 +389,31 @@ mod tests {
             action_for("POST", "/api/v1/local/previews"),
             Action::PersistentBrowserProfile
         );
+        // Plugin and MCP inventories aggregate user-global configuration.
         assert_eq!(
-            action_for("POST", "/api/v1/local/customization?scope=global"),
+            action_for("GET", "/api/v1/local/customization?category=plugins"),
             Action::GlobalCustomization
         );
         assert_eq!(
-            action_for("POST", "/api/v1/local/customization"),
+            action_for("GET", "/api/v1/local/customization?category=mcp"),
+            Action::GlobalCustomization
+        );
+        assert_eq!(
+            action_for("GET", "/api/v1/local/customization?category=rules"),
             Action::ProjectCustomization
+        );
+        assert_eq!(
+            action_for("GET", "/api/v1/local/customization?category=skills"),
+            Action::ProjectCustomization
+        );
+        // Omitting the category must not downgrade the check.
+        assert_eq!(
+            action_for("POST", "/api/v1/local/customization"),
+            Action::GlobalCustomization
+        );
+        assert_eq!(
+            action_for("POST", "/api/v1/local/customization?category=unknown"),
+            Action::GlobalCustomization
         );
     }
 
