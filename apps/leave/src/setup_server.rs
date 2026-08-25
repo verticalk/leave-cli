@@ -47,6 +47,9 @@ const DEVIN_LOGIN_TIMEOUT: Duration = Duration::from_mins(10);
 /// How long one `devin auth status` probe may take before it is treated as failed.
 const DEVIN_STATUS_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long one `tailscale status` probe may take before it is treated as failed.
+const TAILSCALE_STATUS_TIMEOUT: Duration = Duration::from_secs(10);
+
 #[derive(Clone)]
 struct SetupState {
     token: String,
@@ -903,8 +906,9 @@ async fn tailscale_status() -> ToolView {
             manual_command: cfg!(target_os = "linux").then(|| TAILSCALE_INSTALL_COMMAND.into()),
         };
     };
-    let output = command.args(["status", "--json"]).output().await;
-    let Ok(output) = output else {
+    command.kill_on_drop(true).args(["status", "--json"]);
+    let output = tokio::time::timeout(TAILSCALE_STATUS_TIMEOUT, command.output()).await;
+    let Ok(Ok(output)) = output else {
         return ToolView {
             installed: true,
             ready: false,
