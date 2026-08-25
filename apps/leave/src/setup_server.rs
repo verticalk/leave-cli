@@ -349,7 +349,7 @@ async fn auth_login(State(state): State<SetupState>) -> Result<Json<DevinLoginRe
     }
     {
         let mut slot = state.devin_login.lock().await;
-        match slot.as_mut().map(|child| child.try_wait()) {
+        match slot.as_mut().map(tokio::process::Child::try_wait) {
             Some(Ok(None)) => {
                 return Err(SetupError::bad_request(
                     "A Devin sign-in is already running. Finish it in your browser, then choose Check again.",
@@ -381,54 +381,17 @@ async fn auth_login(State(state): State<SetupState>) -> Result<Json<DevinLoginRe
         generation
     };
     *state.devin_login.lock().await = Some(child);
-    let report = state.devin_login_report.clone();
-    tokio::spawn(async move {
-        while let Some(line) = lines.recv().await {
-            let found = {
-                let mut report = report.lock().await;
-                report.transcript.push_str(&line);
-                report.transcript.push('\n');
-                if report.url.is_none() {
-                    devin_login_url(&line)
-                } else {
-                    None
-                }
-            };
-            if let Some(url) = found {
-                report.lock().await.url = Some(url.clone());
-                // The person chose Sign in to Devin, so opening the page the
-                // official CLI asks for is the step they requested.
-                let _ = open_url(&url).await;
-            }
-        }
-        report.lock().await.finished = true;
-    });
-    let watchdog_slot = state.devin_login.clone();
-    let watchdog_report = state.devin_login_report.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(DEVIN_LOGIN_TIMEOUT).await;
-        let still_running = {
-            let report = watchdog_report.lock().await;
-            report.generation == generation && !report.finished
-        };
-        if !still_running {
-            return;
-        }
-        let mut slot = watchdog_slot.lock().await;
-        if let Some(child) = slot.as_mut() {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
-        }
-        *slot = None;
-        drop(slot);
-        let mut report = watchdog_report.lock().await;
-        if report.generation == generation {
-            report.finished = true;
-            report
-                .transcript
-                .push_str("(Leave stopped the sign-in after ten minutes.)\n");
-        }
-    });
+    tokio::spawn(stream_devin_login(lines, state.devin_login_report.clone()));
+    tokio::spawn(stop_stale_devin_login(
+        state.devin_login.clone(),
+        state.devin_login_report.clone(),
+        generation,
+    ));
+    await_devin_login_link(&state).await
+}
+
+/// Give the guided Devin sign-in a short window to print its page, then answer the wizard.
+async fn await_devin_login_link(state: &SetupState) -> Result<Json<DevinLoginResult>, SetupError> {
     let deadline = tokio::time::Instant::now() + DEVIN_LINK_TIMEOUT;
     loop {
         if let Some(url) = state.devin_login_report.lock().await.url.clone() {
@@ -442,7 +405,7 @@ async fn auth_login(State(state): State<SetupState>) -> Result<Json<DevinLoginRe
         }
         let exited = {
             let mut slot = state.devin_login.lock().await;
-            match slot.as_mut().map(|child| child.try_wait()) {
+            match slot.as_mut().map(tokio::process::Child::try_wait) {
                 Some(Ok(None)) | None => None,
                 Some(result) => {
                     *slot = None;
@@ -452,27 +415,7 @@ async fn auth_login(State(state): State<SetupState>) -> Result<Json<DevinLoginRe
         };
         if let Some(result) = exited {
             let report = state.devin_login_report.lock().await.clone();
-            let exit = result
-                .context("could not read Devin's result")
-                .map_err(SetupError::internal)?;
-            if exit.success() {
-                let probe = devin_status(&report, false).await;
-                if probe.ready {
-                    return Ok(Json(DevinLoginResult {
-                        signed_in: true,
-                        login_url: None,
-                        detail: "Devin is signed in on this computer.".into(),
-                    }));
-                }
-                return Err(SetupError::advice(
-                    "Devin's sign-in finished but this computer is still signed out. Choose Check again, or run devin auth login in a terminal.",
-                    report.transcript,
-                ));
-            }
-            return Err(SetupError::advice(
-                "Devin's sign-in did not finish. Run devin auth login in a terminal to see what it needs, then choose Check again.",
-                report.transcript,
-            ));
+            return finished_devin_login(result, report).await;
         }
         if tokio::time::Instant::now() >= deadline {
             return Ok(Json(DevinLoginResult {
@@ -484,6 +427,88 @@ async fn auth_login(State(state): State<SetupState>) -> Result<Json<DevinLoginRe
             }));
         }
         tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+}
+
+/// Turn the guided sign-in's exit into the wizard's answer.
+async fn finished_devin_login(
+    exit: std::io::Result<std::process::ExitStatus>,
+    report: DevinLoginReport,
+) -> Result<Json<DevinLoginResult>, SetupError> {
+    let exit = exit
+        .context("could not read Devin's result")
+        .map_err(SetupError::internal)?;
+    if exit.success() {
+        let probe = devin_status(&report, false).await;
+        if probe.ready {
+            return Ok(Json(DevinLoginResult {
+                signed_in: true,
+                login_url: None,
+                detail: "Devin is signed in on this computer.".into(),
+            }));
+        }
+        return Err(SetupError::advice(
+            "Devin's sign-in finished but this computer is still signed out. Choose Check again, or run devin auth login in a terminal.",
+            report.transcript,
+        ));
+    }
+    Err(SetupError::advice(
+        "Devin's sign-in did not finish. Run devin auth login in a terminal to see what it needs, then choose Check again.",
+        report.transcript,
+    ))
+}
+
+/// Collect a guided Devin sign-in's output, opening the first page Devin asks for.
+async fn stream_devin_login(
+    mut lines: mpsc::Receiver<String>,
+    report: Arc<Mutex<DevinLoginReport>>,
+) {
+    while let Some(line) = lines.recv().await {
+        let found = {
+            let mut report = report.lock().await;
+            report.transcript.push_str(&line);
+            report.transcript.push('\n');
+            if report.url.is_none() {
+                devin_login_url(&line)
+            } else {
+                None
+            }
+        };
+        if let Some(url) = found {
+            report.lock().await.url = Some(url.clone());
+            // The person chose Sign in to Devin, so opening the page the
+            // official CLI asks for is the step they requested.
+            let _ = open_url(&url).await;
+        }
+    }
+    report.lock().await.finished = true;
+}
+
+/// Stop a guided Devin sign-in if it is still running when the ceiling expires.
+async fn stop_stale_devin_login(
+    slot: Arc<Mutex<Option<tokio::process::Child>>>,
+    report: Arc<Mutex<DevinLoginReport>>,
+    generation: u64,
+) {
+    tokio::time::sleep(DEVIN_LOGIN_TIMEOUT).await;
+    let still_running = {
+        let report = report.lock().await;
+        report.generation == generation && !report.finished
+    };
+    if !still_running {
+        return;
+    }
+    let child = slot.lock().await.take();
+    if let Some(mut child) = child {
+        let _ = child.start_kill();
+        let _ = child.wait().await;
+    }
+    let mut report = report.lock().await;
+    if report.generation == generation {
+        report.finished = true;
+        report
+            .transcript
+            .push_str("(Leave stopped the sign-in after ten minutes.)\n");
     }
 }
 
@@ -642,7 +667,7 @@ async fn wait_for_workspace(port: u16, root: &Path, state: &SetupState) -> anyho
 async fn setup_status(state: &SetupState) -> anyhow::Result<SetupStatus> {
     let login_pending = {
         let mut slot = state.devin_login.lock().await;
-        match slot.as_mut().map(|child| child.try_wait()) {
+        match slot.as_mut().map(tokio::process::Child::try_wait) {
             Some(Ok(None)) => true,
             Some(_) => {
                 *slot = None;
