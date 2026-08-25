@@ -227,7 +227,7 @@ function ComputerStep({ status, pendingAction, devinLogin, tailscale, onAction, 
         <ToolRow icon={Browser} tool={status.browser} optional pendingAction={pendingAction} onAction={onAction} />
       </div>
       <div className="setup-phone-how">
-        <span className="phone-how-summary"><DeviceMobile aria-hidden="true" size={17} /><p>Leave can also live on your phone — privately, over your Tailscale network. Never the public internet.</p></span>
+        <span className="phone-how-summary"><DeviceMobile aria-hidden="true" size={17} /><p>Leave can also live on your phone, privately, over your Tailscale network. Never the public internet.</p></span>
         <button className="text-button compact" type="button" aria-expanded={phoneGuideOpen} onClick={() => setPhoneGuideOpen((open) => !open)}>How?</button>
       </div>
       {phoneGuideOpen && (
@@ -252,7 +252,7 @@ function DevinLoginNotice({ tool, result }: { tool: SetupTool; result?: SetupDev
       <strong>Finish signing in to Devin</strong>
       <p>{detail}</p>
       {url && <a className="button secondary compact" href={url} target="_blank" rel="noreferrer">Open Devin sign-in<ArrowRight aria-hidden="true" size={15} /></a>}
-      {tool.manualCommand && <p>Prefer a terminal — or nothing opened? Run <code>{tool.manualCommand}</code>, finish it there, then choose Check again.</p>}
+      {tool.manualCommand && <p>Prefer a terminal, or nothing opened? Run <code>{tool.manualCommand}</code>, finish it there, then choose Check again.</p>}
       {tool.path && <p>Leave checked the Devin command at <code>{tool.path}</code>. If you signed in somewhere else, sign that exact command in.</p>}
       {tool.loginOutput && <details className="setup-error-detail"><summary>What Devin reported</summary><pre>{tool.loginOutput}</pre></details>}
     </div>
@@ -362,7 +362,7 @@ function SuccessStep({ result }: { result: { localUrl: string; awayUrl: string |
       {result.awayUrl ? <PhonePairing url={result.awayUrl} owner={result.awayOwner} /> : (
         <div className="setup-phone-later">
           <DeviceMobile aria-hidden="true" size={17} />
-          <p>Want Leave on your phone too? Install Tailscale on this computer and your phone, sign in with the same account on both, then open a terminal in your workspace and run <code>leave connect . --away</code> — or run <code>leave setup</code> again and tick <strong>Open from my phone</strong>. Nothing is exposed to the public internet.</p>
+          <p>Want Leave on your phone too? Install Tailscale on this computer and your phone, sign in with the same account on both, then open a terminal in your workspace and run <code>leave connect . --away</code>, or run <code>leave setup</code> again and tick <strong>Open from my phone</strong>. Nothing is exposed to the public internet.</p>
         </div>
       )}
       <small>{result.background ? "Leave will restart when you sign in to this computer." : "Keep Leave Setup open while you use this workspace."}</small>

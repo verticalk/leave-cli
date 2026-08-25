@@ -14,8 +14,8 @@ On native Windows, use PowerShell:
 .\infra\bootstrap.ps1
 ```
 
-The bootstrap script installs anything missing into your user account only —
-the official Rust toolchain and the pinned Node.js release — then builds the
+The bootstrap script installs anything missing into your user account only
+(the official Rust toolchain and the pinned Node.js release), then builds the
 PWA and Rust host, installs them under `$LEAVE_INSTALL_PREFIX`, adds the
 **Leave Setup** launcher, and opens it. The Unix default prefix is
 `$HOME/.local`; the Windows default is `%LOCALAPPDATA%\Leave`. It asks before
@@ -43,20 +43,20 @@ menu, or run `leave setup`.
 The private local wizard checks this computer and offers to fix whatever is
 missing:
 
-- **Devin is not installed** — Leave runs Cognition's published installer
+- **Devin is not installed**: Leave runs Cognition's published installer
   (`curl -fsSL https://cli.devin.ai/install.sh | bash`) for your user account.
   The wizard shows that exact command before it runs. On Windows, follow
   Cognition's PowerShell quickstart and choose **Check again**.
-- **Devin is signed out** — **Sign in to Devin** runs the documented
+- **Devin is signed out**: **Sign in to Devin** runs the documented
   `devin auth login` flow, opens or shows the sign-in page Devin asks for,
   and checks the result. The card always shows the exact Devin command
-  Leave checked — as a full-path command you can paste into a terminal —
+  Leave checked (as a full-path command you can paste into a terminal),
   so you can finish the same sign-in there when nothing opens. Leave does
   not copy Desktop tokens, read private Desktop databases, or parse the
   interactive Devin TUI.
-- **Tailscale is signed out** — **Connect Tailscale** runs `tailscale up`,
+- **Tailscale is signed out**: **Connect Tailscale** runs `tailscale up`,
   opens the sign-in link Tailscale prints, and waits for you to finish.
-- **Something failed** — the wizard shows one sentence about what to do next,
+- **Something failed**: the wizard shows one sentence about what to do next,
   with the tool's raw output behind **What the tool reported**.
 
 Leave searches `LEAVE_DEVIN_BIN`, `PATH`, supported Devin Desktop bundle

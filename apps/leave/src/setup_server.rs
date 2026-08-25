@@ -1090,7 +1090,7 @@ fn tailscale_advice(transcript: &str) -> String {
 
 /// Extract a Devin sign-in URL from one line of its output. The sign-in page
 /// may live on an identity-provider domain Leave cannot predict, so any URL
-/// the official CLI prints is offered — it is only shown and opened, never
+/// the official CLI prints is offered; it is only shown and opened, never
 /// fetched by Leave itself.
 fn devin_login_url(line: &str) -> Option<String> {
     let start = line.find("https://").or_else(|| line.find("http://"))?;
