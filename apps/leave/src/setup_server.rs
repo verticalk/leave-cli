@@ -1,5 +1,4 @@
 //! Loopback-only first-run setup for people who do not use a terminal.
-#![allow(clippy::pedantic)] // PROBE-1: remove after bisect
 
 use anyhow::{Context, bail};
 use axum::{
@@ -371,7 +370,7 @@ async fn auth_login(State(state): State<SetupState>) -> Result<Json<DevinLoginRe
         .spawn()
         .context("could not start the official Devin login")
         .map_err(SetupError::internal)?;
-    let mut lines = merged_lines(&mut child);
+    let lines = merged_lines(&mut child);
     let generation = {
         let mut report = state.devin_login_report.lock().await;
         let generation = report.generation + 1;
