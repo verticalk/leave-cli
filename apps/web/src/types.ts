@@ -140,12 +140,24 @@ export interface SetupTool {
   path: string | null;
   url: string | null;
   account: string | null;
+  /** A guided sign-in Leave started is still running for this tool. */
+  loginPending: boolean;
+  /** The sign-in page this tool asked the person to open, when it printed one. */
+  loginUrl: string | null;
+  /** What the tool printed during the guided sign-in, when one ran. */
+  loginOutput: string | null;
   action: SetupToolAction | null;
   manualCommand: string | null;
 }
 
 export interface SetupTailscaleConnection {
   connected: boolean;
+  loginUrl: string | null;
+  detail: string;
+}
+
+export interface SetupDevinLogin {
+  signedIn: boolean;
   loginUrl: string | null;
   detail: string;
 }

@@ -40,6 +40,15 @@ const TAILSCALE_DOWNLOAD_URL: &str = "https://tailscale.com/download";
 const TAILSCALE_INSTALL_COMMAND: &str = "curl -fsSL https://tailscale.com/install.sh | sh";
 /// How long the wizard waits for Tailscale to print a sign-in link.
 const TAILSCALE_LINK_TIMEOUT: Duration = Duration::from_secs(20);
+/// How long the wizard waits in-line for Devin to print a sign-in link.
+const DEVIN_LINK_TIMEOUT: Duration = Duration::from_secs(15);
+/// How long a guided Devin sign-in may run before Leave stops it.
+const DEVIN_LOGIN_TIMEOUT: Duration = Duration::from_mins(10);
+/// How long one `devin auth status` probe may take before it is treated as failed.
+const DEVIN_STATUS_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How long one `tailscale status` probe may take before it is treated as failed.
+const TAILSCALE_STATUS_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
 struct SetupState {
@@ -50,6 +59,23 @@ struct SetupState {
     host_port: u16,
     child: Arc<Mutex<Option<tokio::process::Child>>>,
     tailscale_login: Arc<Mutex<Option<tokio::process::Child>>>,
+    /// The guided `devin auth login` process, while it is running.
+    devin_login: Arc<Mutex<Option<tokio::process::Child>>>,
+    /// What the guided Devin sign-in has reported so far.
+    devin_login_report: Arc<Mutex<DevinLoginReport>>,
+}
+
+/// Live state of the guided Devin sign-in Leave runs from the wizard.
+#[derive(Debug, Default, Clone)]
+struct DevinLoginReport {
+    /// Counts sign-in attempts so watchdogs only stop the attempt they started.
+    generation: u64,
+    /// The sign-in page Devin asked the person to open, when it printed one.
+    url: Option<String>,
+    /// Every line Devin printed since the sign-in started.
+    transcript: String,
+    /// True once the sign-in process has exited.
+    finished: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -84,6 +110,12 @@ struct ToolView {
     url: Option<String>,
     /// Account this computer is signed in as, when the tool reports one.
     account: Option<String>,
+    /// A guided sign-in Leave started is still running for this tool.
+    login_pending: bool,
+    /// The sign-in page this tool asked the person to open, when it printed one.
+    login_url: Option<String>,
+    /// What the tool printed during the guided sign-in, when one ran.
+    login_output: Option<String>,
     /// What Leave itself can do about this requirement.
     action: Option<ToolAction>,
     /// Command the person can run instead, when Leave cannot do it for them.
@@ -232,6 +264,8 @@ pub async fn serve(
         host_port,
         child: Arc::new(Mutex::new(None)),
         tailscale_login: Arc::new(Mutex::new(None)),
+        devin_login: Arc::new(Mutex::new(None)),
+        devin_login_report: Arc::new(Mutex::new(DevinLoginReport::default())),
     };
     let api = Router::new()
         .route("/status", get(status))
@@ -275,48 +309,214 @@ pub async fn serve(
             if let Some(mut child) = shutdown_state.tailscale_login.lock().await.take() {
                 let _ = child.kill().await;
             }
+            if let Some(mut child) = shutdown_state.devin_login.lock().await.take() {
+                let _ = child.kill().await;
+            }
         })
         .await?;
     Ok(())
 }
 
 async fn status(State(state): State<SetupState>) -> Result<Json<SetupStatus>, SetupError> {
-    setup_status(state.host_port)
+    setup_status(&state)
         .await
         .map(Json)
         .map_err(SetupError::internal)
 }
 
-async fn auth_login(State(state): State<SetupState>) -> Result<Json<SetupStatus>, SetupError> {
+/// Result of starting (or joining) the guided Devin sign-in.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DevinLoginResult {
+    /// Devin finished signing in without any further step.
+    signed_in: bool,
+    /// Devin's own sign-in page, when it needs a browser.
+    login_url: Option<String>,
+    /// One sentence for the wizard to show.
+    detail: String,
+}
+
+async fn auth_login(State(state): State<SetupState>) -> Result<Json<DevinLoginResult>, SetupError> {
     let devin = crate::discover_devin_binary()
         .context("Devin was not found. Install Devin Desktop or the official Devin CLI first.")
         .map_err(SetupError::bad_request)?;
+    if devin_status(&DevinLoginReport::default(), false)
+        .await
+        .ready
+    {
+        return Ok(Json(DevinLoginResult {
+            signed_in: true,
+            login_url: None,
+            detail: "Devin is already signed in on this computer.".into(),
+        }));
+    }
+    {
+        let mut slot = state.devin_login.lock().await;
+        match slot.as_mut().map(tokio::process::Child::try_wait) {
+            Some(Ok(None)) => {
+                return Err(SetupError::bad_request(
+                    "A Devin sign-in is already running. Finish it in your browser, then choose Check again.",
+                ));
+            }
+            Some(_) => *slot = None,
+            None => {}
+        }
+    }
     let mut command = Command::new(&devin);
     command
+        .kill_on_drop(true)
         .args(["auth", "login"])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let output = tokio::time::timeout(Duration::from_mins(10), command.output())
-        .await
-        .map_err(|_| SetupError::bad_request(anyhow::anyhow!("Devin login timed out. Try again.")))?
+    let mut child = command
+        .spawn()
         .context("could not start the official Devin login")
         .map_err(SetupError::internal)?;
-    if !output.status.success() {
-        return Err(SetupError::advice(
-            "Devin's sign-in did not finish. Complete it in the browser window Devin opened, then choose Check again.",
-            command_detail(&output.stdout, &output.stderr),
-        ));
+    let lines = merged_lines(&mut child);
+    let generation = {
+        let mut report = state.devin_login_report.lock().await;
+        let generation = report.generation + 1;
+        *report = DevinLoginReport {
+            generation,
+            ..Default::default()
+        };
+        generation
+    };
+    *state.devin_login.lock().await = Some(child);
+    tokio::spawn(stream_devin_login(lines, state.devin_login_report.clone()));
+    tokio::spawn(stop_stale_devin_login(
+        state.devin_login.clone(),
+        state.devin_login_report.clone(),
+        generation,
+    ));
+    await_devin_login_link(&state).await
+}
+
+/// Give the guided Devin sign-in a short window to print its page, then answer the wizard.
+async fn await_devin_login_link(state: &SetupState) -> Result<Json<DevinLoginResult>, SetupError> {
+    let deadline = tokio::time::Instant::now() + DEVIN_LINK_TIMEOUT;
+    loop {
+        if let Some(url) = state.devin_login_report.lock().await.url.clone() {
+            return Ok(Json(DevinLoginResult {
+                signed_in: false,
+                login_url: Some(url),
+                detail:
+                    "Devin needs you to finish its sign-in page. When you are done, choose Check again."
+                        .into(),
+            }));
+        }
+        let exited = {
+            let mut slot = state.devin_login.lock().await;
+            match slot.as_mut().map(tokio::process::Child::try_wait) {
+                Some(Ok(Some(exit))) => {
+                    *slot = None;
+                    Some(Ok(exit))
+                }
+                Some(Err(error)) => {
+                    *slot = None;
+                    Some(Err(error))
+                }
+                Some(Ok(None)) | None => None,
+            }
+        };
+        if let Some(result) = exited {
+            let report = state.devin_login_report.lock().await.clone();
+            return finished_devin_login(result, report).await;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Ok(Json(DevinLoginResult {
+                signed_in: false,
+                login_url: None,
+                detail:
+                    "Devin's sign-in is still running. Finish the page it opened, or use the terminal command below and choose Check again."
+                        .into(),
+            }));
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
     }
-    let next = setup_status(state.host_port)
-        .await
+}
+
+/// Turn the guided sign-in's exit into the wizard's answer.
+async fn finished_devin_login(
+    exit: std::io::Result<std::process::ExitStatus>,
+    report: DevinLoginReport,
+) -> Result<Json<DevinLoginResult>, SetupError> {
+    let exit = exit
+        .context("could not read Devin's result")
         .map_err(SetupError::internal)?;
-    if !next.devin.ready {
-        return Err(SetupError::bad_request(
-            "Devin still reports that this computer is signed out. Finish the browser sign-in, then choose Check again.",
+    if exit.success() {
+        let probe = devin_status(&report, false).await;
+        if probe.ready {
+            return Ok(Json(DevinLoginResult {
+                signed_in: true,
+                login_url: None,
+                detail: "Devin is signed in on this computer.".into(),
+            }));
+        }
+        return Err(SetupError::advice(
+            "Devin's sign-in finished but this computer is still signed out. Choose Check again, or run devin auth login in a terminal.",
+            report.transcript,
         ));
     }
-    Ok(Json(next))
+    Err(SetupError::advice(
+        "Devin's sign-in did not finish. Run devin auth login in a terminal to see what it needs, then choose Check again.",
+        report.transcript,
+    ))
+}
+
+/// Collect a guided Devin sign-in's output, opening the first page Devin asks for.
+async fn stream_devin_login(
+    mut lines: mpsc::Receiver<String>,
+    report: Arc<Mutex<DevinLoginReport>>,
+) {
+    while let Some(line) = lines.recv().await {
+        let found = {
+            let mut report = report.lock().await;
+            report.transcript.push_str(&line);
+            report.transcript.push('\n');
+            if report.url.is_none() {
+                devin_login_url(&line)
+            } else {
+                None
+            }
+        };
+        if let Some(url) = found {
+            report.lock().await.url = Some(url.clone());
+            // The person chose Sign in to Devin, so opening the page the
+            // official CLI asks for is the step they requested.
+            let _ = open_url(&url).await;
+        }
+    }
+    report.lock().await.finished = true;
+}
+
+/// Stop a guided Devin sign-in if it is still running when the ceiling expires.
+async fn stop_stale_devin_login(
+    slot: Arc<Mutex<Option<tokio::process::Child>>>,
+    report: Arc<Mutex<DevinLoginReport>>,
+    generation: u64,
+) {
+    tokio::time::sleep(DEVIN_LOGIN_TIMEOUT).await;
+    let still_running = {
+        let report = report.lock().await;
+        report.generation == generation && !report.finished
+    };
+    if !still_running {
+        return;
+    }
+    let child = slot.lock().await.take();
+    if let Some(mut child) = child {
+        let _ = child.start_kill();
+        let _ = child.wait().await;
+    }
+    let mut report = report.lock().await;
+    if report.generation == generation {
+        report.finished = true;
+        report
+            .transcript
+            .push_str("(Leave stopped the sign-in after ten minutes.)\n");
+    }
 }
 
 async fn select_workspace() -> Result<Json<FolderSelection>, SetupError> {
@@ -339,9 +539,7 @@ async fn launch(
         .await
         .context("Choose an existing workspace folder")
         .map_err(SetupError::bad_request)?;
-    let current = setup_status(state.host_port)
-        .await
-        .map_err(SetupError::internal)?;
+    let current = setup_status(&state).await.map_err(SetupError::internal)?;
     if !current.devin.ready {
         return Err(SetupError::bad_request(
             "Connect Devin before starting the workspace.",
@@ -473,8 +671,20 @@ async fn wait_for_workspace(port: u16, root: &Path, state: &SetupState) -> anyho
     bail!("Leave did not become ready in time. Check the service status or workspace-host.log.")
 }
 
-async fn setup_status(host_port: u16) -> anyhow::Result<SetupStatus> {
-    let devin = devin_status().await;
+async fn setup_status(state: &SetupState) -> anyhow::Result<SetupStatus> {
+    let login_pending = {
+        let mut slot = state.devin_login.lock().await;
+        match slot.as_mut().map(tokio::process::Child::try_wait) {
+            Some(Ok(None)) => true,
+            Some(_) => {
+                *slot = None;
+                false
+            }
+            None => false,
+        }
+    };
+    let login = state.devin_login_report.lock().await.clone();
+    let devin = devin_status(&login, login_pending).await;
     let tailscale = tailscale_status().await;
     let browser_path = crate::discover_chrome_binary();
     Ok(SetupStatus {
@@ -497,12 +707,15 @@ async fn setup_status(host_port: u16) -> anyhow::Result<SetupStatus> {
                 .is_none()
                 .then(|| "https://www.chromium.org/getting-involved/download-chromium/".into()),
             account: None,
+            login_pending: false,
+            login_url: None,
+            login_output: None,
             action: None,
             manual_command: None,
         },
         folder_picker_available: folder_picker_available(),
         workspace_example: workspace_example(),
-        host_port,
+        host_port: state.host_port,
     })
 }
 
@@ -531,7 +744,7 @@ async fn shutdown_signal() {
     ctrl_c.await;
 }
 
-async fn devin_status() -> ToolView {
+async fn devin_status(login: &DevinLoginReport, login_pending: bool) -> ToolView {
     let Some(path) = crate::discover_devin_binary() else {
         return ToolView {
             installed: false,
@@ -541,21 +754,32 @@ async fn devin_status() -> ToolView {
             path: None,
             url: Some(DEVIN_DOCS_URL.into()),
             account: None,
+            login_pending: false,
+            login_url: None,
+            login_output: None,
             action: devin_install_action(),
             manual_command: unix_only(DEVIN_INSTALL_COMMAND),
         };
     };
-    let output = Command::new(&path).args(["auth", "status"]).output().await;
+    let mut command = Command::new(&path);
+    command.kill_on_drop(true).args(["auth", "status"]);
+    let output = tokio::time::timeout(DEVIN_STATUS_TIMEOUT, command.output()).await;
     let (ready, detail) = match output {
-        Ok(output) => {
+        Ok(Ok(output)) => {
             let detail = command_detail(&output.stdout, &output.stderr);
             let ready =
                 output.status.success() && !detail.to_ascii_lowercase().contains("not logged in");
             (ready, detail)
         }
-        Err(error) => (false, error.to_string()),
+        Ok(Err(error)) => (false, error.to_string()),
+        Err(_) => (
+            false,
+            "Devin did not answer in time. Choose Check again in a moment.".into(),
+        ),
     };
     let account = ready.then(|| account_from_status(&detail)).flatten();
+    let transcript = login.transcript.trim();
+    let login_output = (!ready && !transcript.is_empty()).then(|| transcript.to_owned());
     ToolView {
         installed: true,
         ready,
@@ -565,6 +789,10 @@ async fn devin_status() -> ToolView {
                 || "Devin is installed and signed in on this computer.".into(),
                 |account| format!("Signed in to Devin as {account}."),
             )
+        } else if login_pending {
+            "Devin's sign-in is running right now. Finish it, then choose Check again.".into()
+        } else if login.finished {
+            "Devin's sign-in finished, but this computer is still signed out. Try Sign in to Devin again, or run devin auth login in a terminal.".into()
         } else {
             "Devin is installed but signed out. Leave can open Devin's official sign-in for you."
                 .into()
@@ -572,14 +800,16 @@ async fn devin_status() -> ToolView {
         path: Some(path.to_string_lossy().into_owned()),
         url: None,
         account,
+        login_pending,
+        login_url: (!ready).then(|| login.url.clone()).flatten(),
+        login_output,
         action: (!ready).then(|| ToolAction {
             id: "connectDevin",
             label: "Sign in to Devin".into(),
-            command: "devin auth login".into(),
-            detail: "Opens Cognition's official sign-in. Leave never reads Devin's credentials."
-                .into(),
+            command: shell_command(&path, &["auth", "login"]),
+            detail: "Opens Cognition's official sign-in and shows you the page to finish. Leave never reads Devin's credentials.".into(),
         }),
-        manual_command: (!ready).then(|| "devin auth login".into()),
+        manual_command: (!ready).then(|| shell_command(&path, &["auth", "login"])),
     }
 }
 
@@ -648,9 +878,7 @@ async fn install_devin(State(state): State<SetupState>) -> Result<Json<SetupStat
             command_detail(&output.stdout, &output.stderr),
         ));
     }
-    let next = setup_status(state.host_port)
-        .await
-        .map_err(SetupError::internal)?;
+    let next = setup_status(&state).await.map_err(SetupError::internal)?;
     if !next.devin.installed {
         return Err(SetupError::advice(
             "The installer finished but Leave still cannot find the Devin command. Open a new terminal and run devin --version.",
@@ -671,12 +899,16 @@ async fn tailscale_status() -> ToolView {
             path: None,
             url: Some(TAILSCALE_DOWNLOAD_URL.into()),
             account: None,
+            login_pending: false,
+            login_url: None,
+            login_output: None,
             action: None,
             manual_command: cfg!(target_os = "linux").then(|| TAILSCALE_INSTALL_COMMAND.into()),
         };
     };
-    let output = command.args(["status", "--json"]).output().await;
-    let Ok(output) = output else {
+    command.kill_on_drop(true).args(["status", "--json"]);
+    let output = tokio::time::timeout(TAILSCALE_STATUS_TIMEOUT, command.output()).await;
+    let Ok(Ok(output)) = output else {
         return ToolView {
             installed: true,
             ready: false,
@@ -685,6 +917,9 @@ async fn tailscale_status() -> ToolView {
             path: None,
             url: None,
             account: None,
+            login_pending: false,
+            login_url: None,
+            login_output: None,
             action: None,
             manual_command: Some("tailscale status".into()),
         };
@@ -723,6 +958,9 @@ async fn tailscale_status() -> ToolView {
         path: None,
         url: dns_name,
         account,
+        login_pending: false,
+        login_url: None,
+        login_output: None,
         action: (!ready).then(|| ToolAction {
             id: "connectTailscale",
             label: "Connect Tailscale".into(),
@@ -848,6 +1086,19 @@ fn tailscale_advice(transcript: &str) -> String {
     } else {
         "Tailscale could not finish signing in. Open the Tailscale app, sign in there, then choose Check again.".into()
     }
+}
+
+/// Extract a Devin sign-in URL from one line of its output. The sign-in page
+/// may live on an identity-provider domain Leave cannot predict, so any URL
+/// the official CLI prints is offered — it is only shown and opened, never
+/// fetched by Leave itself.
+fn devin_login_url(line: &str) -> Option<String> {
+    let start = line.find("https://").or_else(|| line.find("http://"))?;
+    let url: String = line[start..]
+        .chars()
+        .take_while(|character| !character.is_whitespace())
+        .collect();
+    Some(url.trim_end_matches(['.', ',', ')', '\'']).to_owned())
 }
 
 /// Extract a Tailscale sign-in URL from one line of its output.
@@ -1104,6 +1355,23 @@ fn command_detail(stdout: &[u8], stderr: &[u8]) -> String {
     }
 }
 
+/// Render a command a person can paste into a terminal, quoting the program
+/// when its path needs it. Leave may discover a binary that is not on the
+/// person's PATH, so the bare name would fail them.
+fn shell_command(program: &Path, args: &[&str]) -> String {
+    let program = program.to_string_lossy();
+    let mut command = if program.contains(char::is_whitespace) {
+        format!("\"{program}\"")
+    } else {
+        program.into_owned()
+    };
+    for argument in args {
+        command.push(' ');
+        command.push_str(argument);
+    }
+    command
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1132,6 +1400,29 @@ mod tests {
             "only Tailscale's own sign-in link is offered"
         );
         assert_eq!(login_url("Backend state: Running"), None);
+    }
+
+    #[test]
+    fn reads_a_devin_sign_in_link() {
+        assert_eq!(
+            devin_login_url("To sign in, visit: https://app.devin.ai/auth/cli?code=abcd"),
+            Some("https://app.devin.ai/auth/cli?code=abcd".into())
+        );
+        assert_eq!(
+            devin_login_url("Open https://login.devin.ai/device."),
+            Some("https://login.devin.ai/device".into()),
+            "trailing punctuation is not part of the link"
+        );
+        assert_eq!(
+            devin_login_url("Visit https://auth.cognition.ai/start now"),
+            Some("https://auth.cognition.ai/start".into())
+        );
+        assert_eq!(
+            devin_login_url("Continue at https://sso.example-idp.com/device/1234"),
+            Some("https://sso.example-idp.com/device/1234".into()),
+            "identity-provider domains are not predictable, so any printed URL is offered"
+        );
+        assert_eq!(devin_login_url("Signed in as person@example.com"), None);
     }
 
     #[test]
@@ -1166,6 +1457,22 @@ mod tests {
             assert_eq!(action.command, DEVIN_INSTALL_COMMAND);
             assert_eq!(action.id, "installDevin");
         }
+    }
+
+    #[test]
+    fn renders_a_terminal_command_with_the_full_binary_path() {
+        assert_eq!(
+            shell_command(
+                Path::new("/usr/share/devin-desktop/resources/devin/bin/devin"),
+                &["auth", "login"]
+            ),
+            "/usr/share/devin-desktop/resources/devin/bin/devin auth login"
+        );
+        assert_eq!(
+            shell_command(Path::new("/opt/Devin Desktop/devin"), &["auth", "login"]),
+            "\"/opt/Devin Desktop/devin\" auth login",
+            "paths with spaces are quoted so they paste cleanly"
+        );
     }
 
     #[test]

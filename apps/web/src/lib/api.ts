@@ -10,6 +10,7 @@ import type {
   PreviewView,
   PromptAccepted,
   SessionRecord,
+  SetupDevinLogin,
   SetupLaunchRequest,
   SetupLaunchResult,
   SetupStatus,
@@ -42,7 +43,7 @@ export function fetchSetupStatus(token: string, signal?: AbortSignal) {
 }
 
 export function loginSetupDevin(token: string) {
-  return setupRequest<SetupStatus>(token, "/auth/login", { method: "POST", body: "{}" });
+  return setupRequest<SetupDevinLogin>(token, "/auth/login", { method: "POST", body: "{}" });
 }
 
 export function installSetupDevin(token: string) {

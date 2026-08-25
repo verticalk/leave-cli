@@ -28,6 +28,7 @@ import {
 } from "../lib/api";
 import { QrCode } from "../components/qr-code";
 import type {
+  SetupDevinLogin,
   SetupLaunchRequest,
   SetupStatus,
   SetupTailscaleConnection,
@@ -63,7 +64,10 @@ export function SetupScreen() {
     refetchInterval: 5_000
   });
   const applyStatus = (status: SetupStatus) => queryClient.setQueryData(["setup-status", token], status);
-  const login = useMutation({ mutationFn: () => loginSetupDevin(token), onSuccess: applyStatus });
+  const login = useMutation({
+    mutationFn: () => loginSetupDevin(token),
+    onSuccess: () => void setup.refetch()
+  });
   const install = useMutation({ mutationFn: () => installSetupDevin(token), onSuccess: applyStatus });
   const tailscale = useMutation({
     mutationFn: () => connectSetupTailscale(token),
@@ -149,7 +153,7 @@ export function SetupScreen() {
         {launch.data ? (
           <SuccessStep result={launch.data} />
         ) : step === 0 ? (
-          <ComputerStep status={status} pendingAction={pendingAction} tailscale={tailscale.data} onAction={runAction} onRefresh={() => void setup.refetch()} />
+          <ComputerStep status={status} pendingAction={pendingAction} devinLogin={login.data} tailscale={tailscale.data} onAction={runAction} onRefresh={() => void setup.refetch()} />
         ) : step === 1 ? (
           <WorkspaceStep value={workspacePath} example={status.workspaceExample} pickerAvailable={status.folderPickerAvailable} pickerPending={picker.isPending} pickerDetail={picker.data?.detail} onChange={setWorkspacePath} onPick={() => picker.mutate()} />
         ) : step === 2 ? (
@@ -203,23 +207,54 @@ function SetupErrorBanner({ error, ref }: { error: Error; ref: Ref<HTMLDivElemen
   );
 }
 
-function ComputerStep({ status, pendingAction, tailscale, onAction, onRefresh }: {
+function ComputerStep({ status, pendingAction, devinLogin, tailscale, onAction, onRefresh }: {
   status: SetupStatus;
   pendingAction?: string;
+  devinLogin?: SetupDevinLogin;
   tailscale?: SetupTailscaleConnection;
   onAction: (action: SetupToolAction) => void;
   onRefresh: () => void;
 }) {
+  const devin = status.devin;
+  const [phoneGuideOpen, setPhoneGuideOpen] = useState(false);
+  const showDevinNotice = !devin.ready && (devin.loginPending || Boolean(devinLogin) || Boolean(devin.loginUrl) || Boolean(devin.loginOutput));
   return (
     <div className="setup-step">
       <div className="setup-step-heading"><span className="setup-step-icon"><Desktop aria-hidden="true" size={21} /></span><div><h2>Check this computer</h2><p>Leave sets up what is missing for you. Devin is required; phone access and browser preview are optional.</p></div></div>
       <div className="setup-checks">
-        <ToolRow icon={PlugsConnected} tool={status.devin} pendingAction={pendingAction} onAction={onAction} />
+        <ToolRow icon={PlugsConnected} tool={devin} pendingAction={pendingAction} onAction={onAction} />
         <ToolRow icon={DeviceMobile} tool={status.tailscale} optional pendingAction={pendingAction} onAction={onAction} />
         <ToolRow icon={Browser} tool={status.browser} optional pendingAction={pendingAction} onAction={onAction} />
       </div>
+      <div className="setup-phone-how">
+        <span className="phone-how-summary"><DeviceMobile aria-hidden="true" size={17} /><p>Leave can also live on your phone — privately, over your Tailscale network. Never the public internet.</p></span>
+        <button className="text-button compact" type="button" aria-expanded={phoneGuideOpen} onClick={() => setPhoneGuideOpen((open) => !open)}>How?</button>
+      </div>
+      {phoneGuideOpen && (
+        <div className="away-result phone-how-guide">
+          <strong>How phone access works</strong>
+          <PhoneSteps paired={false} />
+          <p>Tick <strong>Open from my phone</strong> in the Access step and the finish screen shows your phone's QR code. Skipped it there? Run <code>leave connect . --away</code> in your workspace later.</p>
+        </div>
+      )}
+      {showDevinNotice && <DevinLoginNotice tool={devin} result={devinLogin} />}
       {tailscale?.loginUrl && <TailscaleLoginNotice connection={tailscale} />}
       <button className="text-button" type="button" onClick={onRefresh}>Check again</button>
+    </div>
+  );
+}
+
+function DevinLoginNotice({ tool, result }: { tool: SetupTool; result?: SetupDevinLogin }) {
+  const detail = result?.detail ?? tool.detail;
+  const url = result?.loginUrl ?? tool.loginUrl;
+  return (
+    <div className="setup-notice">
+      <strong>Finish signing in to Devin</strong>
+      <p>{detail}</p>
+      {url && <a className="button secondary compact" href={url} target="_blank" rel="noreferrer">Open Devin sign-in<ArrowRight aria-hidden="true" size={15} /></a>}
+      {tool.manualCommand && <p>Prefer a terminal — or nothing opened? Run <code>{tool.manualCommand}</code>, finish it there, then choose Check again.</p>}
+      {tool.path && <p>Leave checked the Devin command at <code>{tool.path}</code>. If you signed in somewhere else, sign that exact command in.</p>}
+      {tool.loginOutput && <details className="setup-error-detail"><summary>What Devin reported</summary><pre>{tool.loginOutput}</pre></details>}
     </div>
   );
 }
@@ -285,7 +320,7 @@ function AccessStep(props: {
       <div className="setup-step-heading"><span className="setup-step-icon"><Key aria-hidden="true" size={21} /></span><div><h2>Choose access</h2><p>Leave keeps sensitive capabilities off until you turn them on.</p></div></div>
       <fieldset className="setup-options"><legend>Connection</legend>
         <Option checked={props.background} onChange={props.onBackground} icon={Desktop} title="Keep Leave running" detail={`Start at sign-in using a ${props.status.platform.serviceLabel}.`} />
-        <Option checked={props.away} onChange={props.onAway} icon={DeviceMobile} title="Open from my phone" detail={phoneReady ? "Use your private Tailscale network. Other tailnet users are rejected." : "Tailscale is not connected on this computer yet."} disabled={!phoneReady} />
+        <Option checked={props.away} onChange={props.onAway} icon={DeviceMobile} title="Open from my phone" detail={phoneReady ? "Chat with Devin and approve its work from your phone over your private Tailscale network. Other tailnet users are rejected." : "Tailscale is not connected on this computer yet."} disabled={!phoneReady} />
       </fieldset>
       {!phoneReady && (
         <div className="setup-notice">
@@ -324,7 +359,12 @@ function SuccessStep({ result }: { result: { localUrl: string; awayUrl: string |
       <h2>Workspace connected</h2>
       <p className="mono">{result.workspacePath}</p>
       <a className="button setup-open-button" href={result.localUrl}>Open Leave<ArrowRight aria-hidden="true" size={16} /></a>
-      {result.awayUrl && <PhonePairing url={result.awayUrl} owner={result.awayOwner} />}
+      {result.awayUrl ? <PhonePairing url={result.awayUrl} owner={result.awayOwner} /> : (
+        <div className="setup-phone-later">
+          <DeviceMobile aria-hidden="true" size={17} />
+          <p>Want Leave on your phone too? Install Tailscale on this computer and your phone, sign in with the same account on both, then open a terminal in your workspace and run <code>leave connect . --away</code> — or run <code>leave setup</code> again and tick <strong>Open from my phone</strong>. Nothing is exposed to the public internet.</p>
+        </div>
+      )}
       <small>{result.background ? "Leave will restart when you sign in to this computer." : "Keep Leave Setup open while you use this workspace."}</small>
     </div>
   );
@@ -342,20 +382,43 @@ function PhonePairing({ url, owner }: { url: string; owner: string | null }) {
   }
   return (
     <div className="away-result">
-      <strong>Add your phone</strong>
-      <ol className="phone-steps">
-        <li>Install Tailscale on your phone and sign in{owner ? <> as <span className="mono">{owner}</span></> : null}.</li>
-        <li>Point your phone camera at this code.</li>
-        <li>Tap Share, then Add to Home Screen to install Leave.</li>
-      </ol>
+      <strong>Use Leave on your phone</strong>
+      <PhoneSteps owner={owner} paired />
       <div className="phone-pairing">
         <QrCode value={url} title={`Scan to open Leave at ${url}`} />
         <div>
-          <p>Only your own tailnet account can open this address. It is never published to the internet.</p>
+          <p>Your private phone address</p>
           <div className="away-address"><code>{url}</code><button className="icon-button" type="button" aria-label="Copy phone address" onClick={() => void copyUrl()}>{copied ? <Check aria-hidden="true" size={18} /> : <Copy aria-hidden="true" size={18} />}</button></div>
         </div>
       </div>
     </div>
+  );
+}
+
+function PhoneSteps({ owner, paired }: { owner?: string | null; paired: boolean }) {
+  return (
+    <ol className="phone-steps">
+      <li>
+        <strong>Install Tailscale on your phone</strong>
+        <small>Get it from the App Store or Google Play, open it, and sign in{owner ? <> with the same account as this computer (<span className="mono">{owner}</span>)</> : " with the same account as this computer"}. Tailscale gives your phone a private, encrypted route to this machine.</small>
+      </li>
+      <li>
+        <strong>Open Leave on the phone</strong>
+        {paired ? (
+          <small>Point the phone's camera at the code below and tap the link that appears. No QR reader? Copy the address next to the code and open it in your phone's browser instead.</small>
+        ) : (
+          <small>Once setup finishes with phone access enabled, the finish screen shows a QR code for your private address. Point the phone's camera at it and tap the link, or copy the address into the phone's browser.</small>
+        )}
+      </li>
+      <li>
+        <strong>Install it like an app</strong>
+        <small>iPhone or iPad: in Safari, tap the Share button (square with an arrow), then <em>Add to Home Screen</em>. Android: in Chrome, tap the three-dot menu, then <em>Add to Home screen</em> or <em>Install app</em>.</small>
+      </li>
+      <li>
+        <strong>You're set</strong>
+        <small>Leave opens from your home screen like a native app. Chat with Devin, watch it work, and approve its operations anywhere your phone can reach Tailscale. The app shell is cached, so it opens instantly even on a weak connection.</small>
+      </li>
+    </ol>
   );
 }
 
