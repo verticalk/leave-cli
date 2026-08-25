@@ -337,7 +337,7 @@ function SessionError({ message }: { message: string }) {
   return <div className="session-error-page" role="alert"><WarningCircle aria-hidden="true" size={28} /><h1>Session unavailable</h1><p>{message}</p><Link className="button secondary" to="/sessions">Back to sessions</Link></div>;
 }
 
-function buildTimeline(events: LocalEvent[]): TimelineMessage[] {
+export function buildTimeline(events: LocalEvent[]): TimelineMessage[] {
   const messages: TimelineMessage[] = [];
   const resolutions = new Map<string, string>();
   for (const event of events) {
@@ -385,6 +385,10 @@ function buildTimeline(events: LocalEvent[]): TimelineMessage[] {
   return messages;
 }
 
+function authorFor(kind: TimelineMessage["kind"]) {
+  return kind === "user" ? "You" : kind === "thought" ? "Devin thought" : "Devin";
+}
+
 function appendSessionUpdate(messages: TimelineMessage[], event: LocalEvent) {
   const update = record(event.payload.update);
   const kind = String(update.sessionUpdate ?? "");
@@ -394,13 +398,25 @@ function appendSessionUpdate(messages: TimelineMessage[], event: LocalEvent) {
     if (!text) return;
     const messageKind: TimelineMessage["kind"] = kind === "agent_message_chunk" ? "agent" : kind === "user_message_chunk" ? "user" : "thought";
     const messageId = String(update.messageId ?? "");
-    const id = messageId ? `chunk:${messageId}:${messageKind}` : event.eventId;
-    const existing = messageId ? messages.find((message) => message.id === id) : undefined;
-    if (existing) {
-      existing.body += text;
-    } else {
-      messages.push({ id, kind: messageKind, author: messageKind === "user" ? "You" : messageKind === "thought" ? "Devin thought" : "Devin", body: text, meta: formatTime(event.occurredAtUnixMs) });
+    if (messageId) {
+      const id = `chunk:${messageId}:${messageKind}`;
+      const existing = messages.find((message) => message.id === id);
+      if (existing) {
+        existing.body += text;
+      } else {
+        messages.push({ id, kind: messageKind, author: authorFor(messageKind), body: text, meta: formatTime(event.occurredAtUnixMs) });
+      }
+      return;
     }
+    // Devin's ACP stream may omit message IDs. Then one streamed reply must
+    // still stay one bubble: keep appending to the bubble currently growing,
+    // until a different kind of event interrupts it.
+    const previous = messages[messages.length - 1];
+    if (previous && previous.kind === messageKind && previous.id.startsWith("chunk:")) {
+      previous.body += text;
+      return;
+    }
+    messages.push({ id: `chunk:auto:${event.eventId}`, kind: messageKind, author: authorFor(messageKind), body: text, meta: formatTime(event.occurredAtUnixMs) });
     return;
   }
   if (kind === "tool_call" || kind === "tool_call_update") {
