@@ -1096,6 +1096,10 @@ impl ApiError {
         drop(error);
         if message.contains(" is off") {
             Self::forbidden(message)
+        } else if message.contains("preview URL") {
+            // The caller sent an unusable URL. Reporting that as 503 told them
+            // the host was broken when the request was the problem.
+            Self::bad_request(message)
         } else {
             Self::unavailable(message)
         }
