@@ -1088,21 +1088,17 @@ fn tailscale_advice(transcript: &str) -> String {
     }
 }
 
-/// Extract a Devin sign-in URL from one line of its output.
+/// Extract a Devin sign-in URL from one line of its output. The sign-in page
+/// may live on an identity-provider domain Leave cannot predict, so any URL
+/// the official CLI prints is offered — it is only shown and opened, never
+/// fetched by Leave itself.
 fn devin_login_url(line: &str) -> Option<String> {
-    let start = line.find("https://")?;
+    let start = line.find("https://").or_else(|| line.find("http://"))?;
     let url: String = line[start..]
         .chars()
         .take_while(|character| !character.is_whitespace())
         .collect();
-    let trimmed = url.trim_end_matches(['.', ',', ')', '\'']).to_owned();
-    let host = trimmed
-        .trim_start_matches("https://")
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    (host.contains("devin.ai") || host.contains("cognition.ai")).then_some(trimmed)
+    Some(url.trim_end_matches(['.', ',', ')', '\'']).to_owned())
 }
 
 /// Extract a Tailscale sign-in URL from one line of its output.
@@ -1404,7 +1400,11 @@ mod tests {
             devin_login_url("Visit https://auth.cognition.ai/start now"),
             Some("https://auth.cognition.ai/start".into())
         );
-        assert_eq!(devin_login_url("See https://example.com/help"), None);
+        assert_eq!(
+            devin_login_url("Continue at https://sso.example-idp.com/device/1234"),
+            Some("https://sso.example-idp.com/device/1234".into()),
+            "identity-provider domains are not predictable, so any printed URL is offered"
+        );
         assert_eq!(devin_login_url("Signed in as person@example.com"), None);
     }
 
