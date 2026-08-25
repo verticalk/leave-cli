@@ -49,8 +49,9 @@ missing:
   Cognition's PowerShell quickstart and choose **Check again**.
 - **Devin is signed out** — **Sign in to Devin** runs the documented
   `devin auth login` flow, opens or shows the sign-in page Devin asks for,
-  and checks the result. The card names the exact Devin command Leave
-  checked, so you can sign that same command in from a terminal. Leave does
+  and checks the result. The card always shows the exact Devin command
+  Leave checked — as a full-path command you can paste into a terminal —
+  so you can finish the same sign-in there when nothing opens. Leave does
   not copy Desktop tokens, read private Desktop databases, or parse the
   interactive Devin TUI.
 - **Tailscale is signed out** — **Connect Tailscale** runs `tailscale up`,

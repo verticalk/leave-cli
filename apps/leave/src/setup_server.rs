@@ -429,7 +429,7 @@ async fn await_devin_login_link(state: &SetupState) -> Result<Json<DevinLoginRes
                 signed_in: false,
                 login_url: None,
                 detail:
-                    "Devin's sign-in is running. Finish it in the window it opened, then choose Check again."
+                    "Devin's sign-in is still running. Finish the page it opened, or use the terminal command below and choose Check again."
                         .into(),
             }));
         }
@@ -806,10 +806,10 @@ async fn devin_status(login: &DevinLoginReport, login_pending: bool) -> ToolView
         action: (!ready).then(|| ToolAction {
             id: "connectDevin",
             label: "Sign in to Devin".into(),
-            command: "devin auth login".into(),
+            command: shell_command(&path, &["auth", "login"]),
             detail: "Opens Cognition's official sign-in and shows you the page to finish. Leave never reads Devin's credentials.".into(),
         }),
-        manual_command: (!ready).then(|| "devin auth login".into()),
+        manual_command: (!ready).then(|| shell_command(&path, &["auth", "login"])),
     }
 }
 
@@ -1355,6 +1355,23 @@ fn command_detail(stdout: &[u8], stderr: &[u8]) -> String {
     }
 }
 
+/// Render a command a person can paste into a terminal, quoting the program
+/// when its path needs it. Leave may discover a binary that is not on the
+/// person's PATH, so the bare name would fail them.
+fn shell_command(program: &Path, args: &[&str]) -> String {
+    let program = program.to_string_lossy();
+    let mut command = if program.contains(char::is_whitespace) {
+        format!("\"{program}\"")
+    } else {
+        program.into_owned()
+    };
+    for argument in args {
+        command.push(' ');
+        command.push_str(argument);
+    }
+    command
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1440,6 +1457,22 @@ mod tests {
             assert_eq!(action.command, DEVIN_INSTALL_COMMAND);
             assert_eq!(action.id, "installDevin");
         }
+    }
+
+    #[test]
+    fn renders_a_terminal_command_with_the_full_binary_path() {
+        assert_eq!(
+            shell_command(
+                Path::new("/usr/share/devin-desktop/resources/devin/bin/devin"),
+                &["auth", "login"]
+            ),
+            "/usr/share/devin-desktop/resources/devin/bin/devin auth login"
+        );
+        assert_eq!(
+            shell_command(Path::new("/opt/Devin Desktop/devin"), &["auth", "login"]),
+            "\"/opt/Devin Desktop/devin\" auth login",
+            "paths with spaces are quoted so they paste cleanly"
+        );
     }
 
     #[test]

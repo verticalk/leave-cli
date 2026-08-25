@@ -240,7 +240,8 @@ function DevinLoginNotice({ tool, result }: { tool: SetupTool; result?: SetupDev
       <strong>Finish signing in to Devin</strong>
       <p>{detail}</p>
       {url && <a className="button secondary compact" href={url} target="_blank" rel="noreferrer">Open Devin sign-in<ArrowRight aria-hidden="true" size={15} /></a>}
-      {tool.path && <p>Leave checked the Devin command at <code>{tool.path}</code>. If you signed in somewhere else, run <code>{tool.manualCommand ?? "devin auth login"}</code> with that exact command.</p>}
+      {tool.manualCommand && <p>Prefer a terminal — or nothing opened? Run <code>{tool.manualCommand}</code>, finish it there, then choose Check again.</p>}
+      {tool.path && <p>Leave checked the Devin command at <code>{tool.path}</code>. If you signed in somewhere else, sign that exact command in.</p>}
       {tool.loginOutput && <details className="setup-error-detail"><summary>What Devin reported</summary><pre>{tool.loginOutput}</pre></details>}
     </div>
   );
