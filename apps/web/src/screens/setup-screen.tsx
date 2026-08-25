@@ -308,7 +308,7 @@ function AccessStep(props: {
       <div className="setup-step-heading"><span className="setup-step-icon"><Key aria-hidden="true" size={21} /></span><div><h2>Choose access</h2><p>Leave keeps sensitive capabilities off until you turn them on.</p></div></div>
       <fieldset className="setup-options"><legend>Connection</legend>
         <Option checked={props.background} onChange={props.onBackground} icon={Desktop} title="Keep Leave running" detail={`Start at sign-in using a ${props.status.platform.serviceLabel}.`} />
-        <Option checked={props.away} onChange={props.onAway} icon={DeviceMobile} title="Open from my phone" detail={phoneReady ? "Use your private Tailscale network. Other tailnet users are rejected." : "Tailscale is not connected on this computer yet."} disabled={!phoneReady} />
+        <Option checked={props.away} onChange={props.onAway} icon={DeviceMobile} title="Open from my phone" detail={phoneReady ? "Chat with Devin and approve its work from your phone over your private Tailscale network. Other tailnet users are rejected." : "Tailscale is not connected on this computer yet."} disabled={!phoneReady} />
       </fieldset>
       {!phoneReady && (
         <div className="setup-notice">
@@ -347,7 +347,12 @@ function SuccessStep({ result }: { result: { localUrl: string; awayUrl: string |
       <h2>Workspace connected</h2>
       <p className="mono">{result.workspacePath}</p>
       <a className="button setup-open-button" href={result.localUrl}>Open Leave<ArrowRight aria-hidden="true" size={16} /></a>
-      {result.awayUrl && <PhonePairing url={result.awayUrl} owner={result.awayOwner} />}
+      {result.awayUrl ? <PhonePairing url={result.awayUrl} owner={result.awayOwner} /> : (
+        <div className="setup-phone-later">
+          <DeviceMobile aria-hidden="true" size={17} />
+          <p>Want Leave on your phone too? Install Tailscale on this computer and your phone, sign in with the same account on both, then open a terminal in your workspace and run <code>leave connect . --away</code> — or run <code>leave setup</code> again and tick <strong>Open from my phone</strong>. Nothing is exposed to the public internet.</p>
+        </div>
+      )}
       <small>{result.background ? "Leave will restart when you sign in to this computer." : "Keep Leave Setup open while you use this workspace."}</small>
     </div>
   );
@@ -365,16 +370,29 @@ function PhonePairing({ url, owner }: { url: string; owner: string | null }) {
   }
   return (
     <div className="away-result">
-      <strong>Add your phone</strong>
+      <strong>Use Leave on your phone</strong>
       <ol className="phone-steps">
-        <li>Install Tailscale on your phone and sign in{owner ? <> as <span className="mono">{owner}</span></> : null}.</li>
-        <li>Point your phone camera at this code.</li>
-        <li>Tap Share, then Add to Home Screen to install Leave.</li>
+        <li>
+          <strong>Install Tailscale on your phone</strong>
+          <small>Get it from the App Store or Google Play, open it, and sign in{owner ? <> with the same account as this computer (<span className="mono">{owner}</span>)</> : " with the same account as this computer"}. Tailscale gives your phone a private, encrypted route to this machine.</small>
+        </li>
+        <li>
+          <strong>Open Leave on the phone</strong>
+          <small>Point the phone's camera at the code below and tap the link that appears. No QR reader? Copy the address next to the code and open it in your phone's browser instead.</small>
+        </li>
+        <li>
+          <strong>Install it like an app</strong>
+          <small>iPhone or iPad: in Safari, tap the Share button (square with an arrow), then <em>Add to Home Screen</em>. Android: in Chrome, tap the three-dot menu, then <em>Add to Home screen</em> or <em>Install app</em>.</small>
+        </li>
+        <li>
+          <strong>You're set</strong>
+          <small>Leave now opens from your home screen like a native app. Chat with Devin, watch it work, and approve its operations anywhere your phone can reach Tailscale. The app shell is cached, so it opens instantly even on a weak connection.</small>
+        </li>
       </ol>
       <div className="phone-pairing">
         <QrCode value={url} title={`Scan to open Leave at ${url}`} />
         <div>
-          <p>Only your own tailnet account can open this address. It is never published to the internet.</p>
+          <p>Your private phone address</p>
           <div className="away-address"><code>{url}</code><button className="icon-button" type="button" aria-label="Copy phone address" onClick={() => void copyUrl()}>{copied ? <Check aria-hidden="true" size={18} /> : <Copy aria-hidden="true" size={18} />}</button></div>
         </div>
       </div>

@@ -74,9 +74,16 @@ The selected folder is canonicalized before Leave registers it and starts
 3. In Leave Setup, enable **Open from my phone** and **Keep Leave running**.
 4. Start Leave. The final screen shows a QR code for the private
    `https://...ts.net` address, the tailnet account allowed to open it, and the
-   three phone steps.
-5. Point the phone camera at the code, then use Add to Home Screen to install
-   the PWA.
+   phone steps below.
+5. Point the phone camera at the code and tap the link that appears (or copy
+   the address and open it in the phone's browser).
+6. Install the PWA on the home screen. iPhone or iPad: in Safari, tap Share,
+   then **Add to Home Screen**. Android: in Chrome, tap the three-dot menu,
+   then **Add to Home screen** or **Install app**.
+
+Skipped phone access during setup? Install Tailscale on both devices, then run
+`leave connect . --away` inside the workspace (or run `leave setup` again and
+tick **Open from my phone**).
 
 Leave remains bound to `127.0.0.1`. Tailscale terminates HTTPS and adds the
 signed-in identity headers. Leave permits the exact host-owner login and denies
