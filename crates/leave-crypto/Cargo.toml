@@ -18,7 +18,7 @@ emit-vectors = []
 # libcrux-secrets =0.0.5 and libcrux-sha3 0.0.8, both carrying unfixable
 # high-severity advisories. The 0.9 graph audits clean.
 blake3.workspace = true
-chacha20poly1305 = "0.10.1"
+chacha20poly1305 = "0.11.0"
 openmls = "0.9.0-rc.4"
 openmls_basic_credential = "0.6.0-rc.4"
 openmls_memory_storage = "0.6.0-rc.4"
